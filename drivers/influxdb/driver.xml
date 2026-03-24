@@ -199,6 +199,17 @@
         <variabletype>all</variabletype>
       </property>
       <property>
+        <name>Add Variable As</name>
+        <type>LIST</type>
+        <default>(Select)</default>
+        <items>
+          <item>(Select)</item>
+          <item>Field</item>
+          <item>Tag</item>
+        </items>
+        <tooltip>Add the selected variable as a field or tag</tooltip>
+      </property>
+      <property>
         <name>Configured Variables</name>
         <type>STRING</type>
         <default></default>
@@ -208,6 +219,16 @@
         <name>Remove Variable</name>
         <type>DYNAMIC_LIST</type>
         <tooltip>Select a variable to remove from this measurement</tooltip>
+      </property>
+      <property>
+        <name>Remove Measurement</name>
+        <type>LIST</type>
+        <default>(Select)</default>
+        <items>
+          <item>(Select)</item>
+          <item>Remove</item>
+        </items>
+        <tooltip>Remove the currently selected measurement</tooltip>
       </property>
       <property>
         <name>Measurement Write Interval</name>
@@ -251,22 +272,7 @@
         <name>Flush Buffer</name>
         <command>FlushBuffer</command>
       </action>
-      <action>
-        <name>Add as Field</name>
-        <command>AddAsField</command>
-      </action>
-      <action>
-        <name>Add as Tag</name>
-        <command>AddAsTag</command>
-      </action>
-      <action>
-        <name>Remove Selected Variable</name>
-        <command>RemoveSelectedVariable</command>
-      </action>
-      <action>
-        <name>Remove Measurement</name>
-        <command>RemoveMeasurement</command>
-      </action>
+
     </actions>
   </config>
 </devicedata>

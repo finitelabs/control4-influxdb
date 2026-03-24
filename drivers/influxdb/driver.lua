@@ -228,8 +228,10 @@ local function refreshMeasurementUI()
   --- Properties that are only visible when a measurement is selected.
   local configProps = {
     "Select Variable",
+    "Add Variable As",
     "Configured Variables",
     "Remove Variable",
+    "Remove Measurement",
     "Measurement Write Interval",
     "Measurement Enabled",
   }
@@ -545,52 +547,47 @@ function OPC.Measurement_Enabled(propertyValue)
   end
 end
 
----------------------------------------------------------------------------
--- Action Handlers (via ExecuteCommand / EC table)
----------------------------------------------------------------------------
+--- Handle the "Add Variable As" property change.
+--- When the user selects "Field" or "Tag", adds the currently selected variable
+--- to the active measurement and resets the dropdown to "(Select)".
+--- @param propertyValue string
+function OPC.Add_Variable_As(propertyValue)
+  log:trace("OPC.Add_Variable_As('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  if propertyValue == constants.SELECT_OPTION or not propertyValue or propertyValue == "" then
+    return
+  end
 
---- Test Connection action handler.
-function EC.TestConnection()
-  log:info("Action: Test Connection")
-  testConnection()
+  if propertyValue == "Field" then
+    addVariable("fields")
+  elseif propertyValue == "Tag" then
+    addVariable("tags")
+  end
+
+  -- Reset the dropdown back to "(Select)"
+  UpdateProperty("Add Variable As", constants.SELECT_OPTION, true)
 end
 
---- Add Measurement action handler.
-function EC.AddMeasurement()
-  local name = Properties["Measurement Name"]
-  log:info("Action: Add Measurement '%s'", name or "")
-  addMeasurement(name)
-  -- Clear the input field after adding
-  UpdateProperty("Measurement Name", "")
-end
+--- Handle the "Remove Variable" property change.
+--- When the user selects a variable from the list, removes it from the active measurement.
+--- @param propertyValue string
+function OPC.Remove_Variable(propertyValue)
+  log:trace("OPC.Remove_Variable('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  if propertyValue == constants.SELECT_OPTION or not propertyValue or propertyValue == "" then
+    return
+  end
 
---- Add as Field action handler.
-function EC.AddAsField()
-  log:info("Action: Add as Field")
-  addVariable("fields")
-end
-
---- Add as Tag action handler.
-function EC.AddAsTag()
-  log:info("Action: Add as Tag")
-  addVariable("tags")
-end
-
---- Remove Selected Variable action handler.
-function EC.RemoveSelectedVariable()
-  log:info("Action: Remove Selected Variable")
   if not selectedMeasurement or not measurements[selectedMeasurement] then
-    log:warning("RemoveSelectedVariable: no measurement selected")
+    log:warning("Remove_Variable: no measurement selected")
     return
   end
 
-  local varId = Properties["Remove Variable"]
-  if not varId or varId == "" or varId == constants.SELECT_OPTION then
-    log:warning("RemoveSelectedVariable: no variable selected")
-    return
-  end
-
-  varId = tostring(varId)
+  local varId = tostring(propertyValue)
   local meas = measurements[selectedMeasurement]
 
   -- Remove from fields
@@ -616,14 +613,43 @@ function EC.RemoveSelectedVariable()
   refreshMeasurementUI()
 end
 
---- Remove Measurement action handler.
-function EC.RemoveMeasurement()
-  log:info("Action: Remove Measurement")
-  if not selectedMeasurement then
-    log:warning("RemoveMeasurement: no measurement selected")
+--- Handle the "Remove Measurement" property change.
+--- When the user selects "Remove", deletes the currently selected measurement.
+--- @param propertyValue string
+function OPC.Remove_Measurement(propertyValue)
+  log:trace("OPC.Remove_Measurement('%s')", propertyValue)
+  if not gInitialized then
     return
   end
-  removeMeasurement(selectedMeasurement)
+  if propertyValue == constants.SELECT_OPTION or not propertyValue or propertyValue == "" then
+    return
+  end
+
+  if propertyValue == "Remove" and selectedMeasurement then
+    removeMeasurement(selectedMeasurement)
+  end
+
+  -- Reset the dropdown back to "(Select)"
+  UpdateProperty("Remove Measurement", constants.SELECT_OPTION, true)
+end
+
+---------------------------------------------------------------------------
+-- Action Handlers (via ExecuteCommand / EC table)
+---------------------------------------------------------------------------
+
+--- Test Connection action handler.
+function EC.TestConnection()
+  log:info("Action: Test Connection")
+  testConnection()
+end
+
+--- Add Measurement action handler.
+function EC.AddMeasurement()
+  local name = Properties["Measurement Name"]
+  log:info("Action: Add Measurement '%s'", name or "")
+  addMeasurement(name)
+  -- Clear the input field after adding
+  UpdateProperty("Measurement Name", "")
 end
 
 --- Flush Buffer action handler.
