@@ -212,7 +212,11 @@ function InfluxWriter.postBatch(url, token, lines)
       d:reject({ retriable = false, retryAfter = nil, errMsg = "authentication error (HTTP 401)" })
     elseif responseCode == 422 then
       log:error("InfluxWriter: parse error (HTTP 422): %s", strData or "")
-      d:reject({ retriable = false, retryAfter = nil, errMsg = "line protocol parse error (HTTP 422): " .. (strData or "") })
+      d:reject({
+        retriable = false,
+        retryAfter = nil,
+        errMsg = "line protocol parse error (HTTP 422): " .. (strData or ""),
+      })
     elseif responseCode == 429 then
       -- Parse Retry-After header if present
       local retryAfter = nil
@@ -226,7 +230,11 @@ function InfluxWriter.postBatch(url, token, lines)
       d:reject({ retriable = true, retryAfter = retryAfter, errMsg = "rate limited (HTTP 429)" })
     elseif responseCode >= 500 then
       log:error("InfluxWriter: server error (HTTP %d): %s", responseCode, strData or "")
-      d:reject({ retriable = isRetriable(responseCode), retryAfter = nil, errMsg = string.format("server error (HTTP %d)", responseCode) })
+      d:reject({
+        retriable = isRetriable(responseCode),
+        retryAfter = nil,
+        errMsg = string.format("server error (HTTP %d)", responseCode),
+      })
     else
       log:error("InfluxWriter: unexpected response (HTTP %d): %s", responseCode, strData or "")
       d:reject({ retriable = false, retryAfter = nil, errMsg = string.format("unexpected HTTP %d", responseCode) })
