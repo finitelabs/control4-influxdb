@@ -1,7 +1,7 @@
 # Control4 Driver Build System
 # Run `make help` for available targets.
 
-DISTRIBUTIONS := drivercentral oss
+DISTRIBUTIONS := oss
 README_DRIVER := influxdb
 README_BUILD  := oss
 
