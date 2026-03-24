@@ -3,4 +3,5 @@
 /.venv
 /.lua
 /node_modules
+/images
 **/http-client.private.env.json
