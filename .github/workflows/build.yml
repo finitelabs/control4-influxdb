@@ -64,7 +64,7 @@ jobs:
 
       - name: Verify PDFs were generated
         run: |
-          for build in drivercentral oss; do
+          for build in oss; do
             pdf_count=$(find "dist/$build" -name '*.pdf' 2>/dev/null | wc -l)
             if [ "$pdf_count" -eq 0 ]; then
               echo "::error::No PDF files found in dist/$build"
@@ -84,15 +84,6 @@ jobs:
             exit 1
           fi
 
-
-
-      - name: Upload drivercentral artifacts
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: drivercentral
-          path: dist/drivercentral/*
-          if-no-files-found: error
 
 
       - name: Upload oss artifacts
