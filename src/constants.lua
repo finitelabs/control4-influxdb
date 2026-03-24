@@ -62,11 +62,11 @@ return {
   --- Outage threshold options (display value -> seconds).
   --- @type table<string, number>
   OUTAGE_THRESHOLDS = {
-    ["1m"]  = 60,
-    ["5m"]  = 300,
+    ["1m"] = 60,
+    ["5m"] = 300,
     ["15m"] = 900,
     ["30m"] = 1800,
-    ["1h"]  = 3600,
+    ["1h"] = 3600,
   },
 
   --- InfluxDB line protocol value type identifiers.

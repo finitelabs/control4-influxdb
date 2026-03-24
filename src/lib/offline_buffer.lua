@@ -91,9 +91,15 @@ end
 --- Update configuration (e.g., after property change).
 --- @param opts table Table with optional fields: max_points, max_bytes, outage_threshold
 function OfflineBuffer:configure(opts)
-  if opts.max_points then self._config.max_points = opts.max_points end
-  if opts.max_bytes then self._config.max_bytes = opts.max_bytes end
-  if opts.outage_threshold then self._config.outage_threshold = opts.outage_threshold end
+  if opts.max_points then
+    self._config.max_points = opts.max_points
+  end
+  if opts.max_bytes then
+    self._config.max_bytes = opts.max_bytes
+  end
+  if opts.outage_threshold then
+    self._config.outage_threshold = opts.outage_threshold
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -130,7 +136,9 @@ end
 --- Transition to a new connection state, firing callbacks as needed.
 --- @param newState string One of ConnectionState.*
 function OfflineBuffer:_setState(newState)
-  if self._state == newState then return end
+  if self._state == newState then
+    return
+  end
   local prev = self._state
   self._state = newState
   log:info("Connection state: %s -> %s", prev, newState)
@@ -187,8 +195,12 @@ end
 
 --- Check whether the outage threshold has been exceeded and notify if so.
 function OfflineBuffer:_checkOutageThreshold()
-  if self._outageNotified then return end
-  if self._disconnectedAt == nil then return end
+  if self._outageNotified then
+    return
+  end
+  if self._disconnectedAt == nil then
+    return
+  end
   local elapsed = os.time() - self._disconnectedAt
   if elapsed >= self._config.outage_threshold then
     self._outageNotified = true
@@ -238,7 +250,9 @@ end
 --- Fires the Buffer Full event (via onOutage pathway) when eviction occurs.
 --- @param points string[] Line-protocol strings to buffer.
 function OfflineBuffer:push(points)
-  if not points or #points == 0 then return end
+  if not points or #points == 0 then
+    return
+  end
 
   local buf = self:_load()
   for _, pt in ipairs(points) do

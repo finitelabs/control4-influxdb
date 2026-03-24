@@ -239,9 +239,15 @@ end
 --- @param responseCode number|nil HTTP status code (nil for network-level errors).
 --- @return boolean isRetriable
 local function isRetriableError(responseCode)
-  if not responseCode then return true end -- network error
-  if responseCode == 429 then return true end
-  if responseCode >= 500 then return true end
+  if not responseCode then
+    return true
+  end -- network error
+  if responseCode == 429 then
+    return true
+  end
+  if responseCode >= 500 then
+    return true
+  end
   return false
 end
 
