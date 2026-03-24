@@ -23,6 +23,7 @@ local persist = require("lib.persist")
 local events = require("lib.events")
 local conditionals = require("lib.conditionals")
 local constants = require("constants")
+local OfflineBuffer = require("lib.offline_buffer")
 
 ---------------------------------------------------------------------------
 -- State
@@ -40,7 +41,19 @@ local config = {
   database = "",
   precision = constants.DEFAULT_PRECISION,
   writeInterval = constants.DEFAULT_WRITE_INTERVAL,
+  maxBufferPoints = constants.MAX_BUFFER_SIZE,
+  maxBufferBytes = constants.MAX_BUFFER_BYTES,
+  outageThreshold = constants.DEFAULT_OUTAGE_THRESHOLD,
 }
+
+--- Whether a drain cycle is currently in flight (waiting for HTTP callback).
+--- Prevents overlapping drain attempts.
+--- @type boolean
+local drainInFlight = false
+
+--- Offline buffer instance for retry and persistence.
+--- @type OfflineBuffer
+local offlineBuffer
 
 --- Measurement configurations keyed by measurement name.
 --- Each entry: { fields = {}, tags = {}, interval = number, enabled = boolean }
@@ -79,6 +92,31 @@ local function updateConnectionStatus(connected, status)
   end
 end
 
+--- Handle an offline-buffer state change (called from OfflineBuffer callbacks).
+--- @param state string One of "Connected", "Disconnected", "Reconnecting"
+local function onBufferStateChange(state)
+  -- Update the read-only Connection State property
+  UpdateProperty("Connection State", state)
+
+  if state == OfflineBuffer.State.CONNECTED then
+    updateConnectionStatus(true)
+    -- Update offline buffer size display
+    if offlineBuffer then
+      UpdateProperty("Offline Buffer Size", tostring(offlineBuffer:size()))
+    end
+  elseif state == OfflineBuffer.State.RECONNECTING then
+    updateConnectionStatus(false, "Reconnecting...")
+  else
+    updateConnectionStatus(false, "Disconnected")
+  end
+end
+
+--- Handle extended-outage notification from the offline buffer.
+local function onOutageThreshold()
+  log:warn("Extended InfluxDB outage — firing Extended Outage event")
+  events.fire("Extended Outage")
+end
+
 --- Build the base URL for InfluxDB write API.
 --- @return string|nil url The full write endpoint URL, or nil if config is incomplete.
 local function getWriteUrl()
@@ -106,7 +144,7 @@ end
 local function testConnection()
   if config.url == "" then
     updateConnectionStatus(false, "No URL configured")
-    log:warning("Test Connection: No InfluxDB URL configured")
+    log:warn("Test Connection: No InfluxDB URL configured")
     return
   end
 
@@ -153,7 +191,7 @@ end
 --- @param name string The measurement name.
 local function addMeasurement(name)
   if not name or name == "" then
-    log:warning("Cannot add measurement: name is empty")
+    log:warn("Cannot add measurement: name is empty")
     return
   end
 
@@ -161,7 +199,7 @@ local function addMeasurement(name)
   name = name:gsub("[%s,]", "_")
 
   if measurements[name] then
-    log:warning("Measurement '%s' already exists", name)
+    log:warn("Measurement '%s' already exists", name)
     return
   end
 
@@ -183,7 +221,7 @@ end
 --- @param name string The measurement name.
 local function removeMeasurement(name)
   if not measurements[name] then
-    log:warning("Measurement '%s' does not exist", name)
+    log:warn("Measurement '%s' does not exist", name)
     return
   end
 
@@ -195,16 +233,118 @@ local function removeMeasurement(name)
   log:info("Removed measurement: %s", name)
 end
 
---- Flush the write buffer to InfluxDB.
-local function flushBuffer()
-  if #writeBuffer == 0 then
-    log:debug("Flush: buffer is empty, nothing to write")
+--- Determine whether an HTTP response code represents a retriable error.
+--- Retriable: network errors, 429 (rate limit), 5xx (server errors).
+--- Non-retriable (permanent): 401 (auth), 422 (bad line protocol), other 4xx.
+--- @param responseCode number|nil HTTP status code (nil for network-level errors).
+--- @return boolean isRetriable
+local function isRetriableError(responseCode)
+  if not responseCode then return true end -- network error
+  if responseCode == 429 then return true end
+  if responseCode >= 500 then return true end
+  return false
+end
+
+--- Write a batch of line-protocol points to InfluxDB.
+--- On failure, routes points to the offline buffer when the error is retriable.
+--- @param batch string[] Line-protocol strings to write.
+--- @param isDrain boolean True if this write is draining the offline buffer.
+local function writeBatch(batch, isDrain)
+  local url = getWriteUrl()
+  if not url then
+    log:warn("Write: cannot write, InfluxDB not fully configured")
+    if not isDrain then
+      -- Buffer points for later when config is complete
+      offlineBuffer:onWriteFailure(true, batch)
+    end
     return
   end
 
-  local url = getWriteUrl()
-  if not url then
-    log:warning("Flush: cannot write, InfluxDB not fully configured")
+  local payload = table.concat(batch, "\n")
+  log:info("Writing %d point(s) to InfluxDB%s", #batch, isDrain and " (drain)" or "")
+
+  C4:urlPost(url, payload, getHeaders(), false, function(ticketId, strData, responseCode, tHeaders, strError)
+    if strError and strError ~= "" then
+      log:error("Write failed (network): %s", strError)
+      events.fire("Write Error")
+      if isDrain then
+        drainInFlight = false
+        offlineBuffer:onDrainResult(false, 0, true)
+      else
+        local evicted = offlineBuffer:onWriteFailure(true, batch)
+        if evicted > 0 then
+          events.fire("Buffer Full")
+        end
+      end
+      return
+    end
+
+    if responseCode == 200 or responseCode == 204 then
+      log:debug("Write successful (HTTP %d), %d point(s) written", responseCode, #batch)
+      events.fire("Connected") -- fire only when going from offline to online handled by state machine
+      if isDrain then
+        drainInFlight = false
+        offlineBuffer:onDrainResult(true, #batch, false)
+      else
+        if not influxConnected then
+          updateConnectionStatus(true)
+        end
+      end
+    elseif responseCode == 401 then
+      log:error("Write failed: authentication error (HTTP 401) — check API token")
+      updateConnectionStatus(false, "Auth error (401)")
+      events.fire("Write Error")
+      if isDrain then
+        drainInFlight = false
+        offlineBuffer:onDrainResult(false, 0, false) -- permanent — stop draining
+      end
+      -- Don't buffer: permanent error
+    elseif responseCode == 422 then
+      log:error("Write failed: line protocol parse error (HTTP 422): %s", strData or "")
+      events.fire("Write Error")
+      if isDrain then
+        drainInFlight = false
+        -- Drop the bad points from the buffer and continue draining
+        offlineBuffer:onWriteSuccess(#batch)
+      end
+      -- Don't buffer: permanent error
+    elseif responseCode == 429 then
+      log:warn("Write throttled (HTTP 429) — buffering and retrying with backoff")
+      events.fire("Write Error")
+      if isDrain then
+        drainInFlight = false
+        offlineBuffer:onDrainResult(false, 0, true)
+      else
+        local evicted = offlineBuffer:onWriteFailure(true, batch)
+        if evicted > 0 then
+          events.fire("Buffer Full")
+        end
+      end
+    else
+      log:error("Write failed (HTTP %d): %s", responseCode, strData or "")
+      updateConnectionStatus(false, string.format("Write error (HTTP %d)", responseCode))
+      events.fire("Write Error")
+      local retriable = isRetriableError(responseCode)
+      if isDrain then
+        drainInFlight = false
+        offlineBuffer:onDrainResult(false, 0, retriable)
+      else
+        if retriable then
+          local evicted = offlineBuffer:onWriteFailure(true, batch)
+          if evicted > 0 then
+            events.fire("Buffer Full")
+          end
+        end
+      end
+    end
+  end)
+end
+
+--- Flush the in-memory write buffer to InfluxDB.
+--- If offline, queues points directly into the offline buffer.
+local function flushBuffer()
+  if #writeBuffer == 0 then
+    log:debug("Flush: buffer is empty, nothing to write")
     return
   end
 
@@ -215,49 +355,42 @@ local function flushBuffer()
     batch[i] = writeBuffer[i]
   end
 
-  -- Remove flushed entries from the buffer
   local remaining = {}
   for i = count + 1, #writeBuffer do
     remaining[#remaining + 1] = writeBuffer[i]
   end
   writeBuffer = remaining
 
-  local payload = table.concat(batch, "\n")
-  log:info("Flushing %d point(s) to InfluxDB (%d remaining in buffer)", count, #writeBuffer)
-
-  C4:urlPost(url, payload, getHeaders(), false, function(ticketId, strData, responseCode, tHeaders, strError)
-    if strError and strError ~= "" then
-      log:error("Write failed: %s", strError)
-      updateConnectionStatus(false, "Write error: " .. strError)
-      events.fire("Write Error")
-      -- TODO (DRV-12): Re-queue failed batch with backoff
-      return
+  -- If we know we're offline, skip the network and go straight to the buffer
+  if offlineBuffer:getState() ~= OfflineBuffer.State.CONNECTED and offlineBuffer:size() > 0 then
+    log:debug("Flush: offline, routing %d point(s) directly to offline buffer", #batch)
+    local evicted = offlineBuffer:push(batch) or 0
+    if evicted > 0 then
+      events.fire("Buffer Full")
     end
+    return
+  end
 
-    if responseCode == 200 or responseCode == 204 then
-      log:debug("Write successful (HTTP %d), %d points written", responseCode, count)
-      if not influxConnected then
-        updateConnectionStatus(true)
-      end
-    elseif responseCode == 401 then
-      log:error("Write failed: authentication error (HTTP 401). Check API token.")
-      updateConnectionStatus(false, "Auth error (401)")
-      events.fire("Write Error")
-    elseif responseCode == 422 then
-      log:error("Write failed: parse error (HTTP 422). Bad line protocol: %s", strData or "")
-      events.fire("Write Error")
-      -- Don't re-queue parse errors (permanent failure)
-    elseif responseCode == 429 then
-      log:warning("Write throttled (HTTP 429). Will retry.")
-      events.fire("Write Error")
-      -- TODO (DRV-12): Respect Retry-After header and re-queue
-    else
-      log:error("Write failed (HTTP %d): %s", responseCode, strData or "")
-      updateConnectionStatus(false, string.format("Write error (HTTP %d)", responseCode))
-      events.fire("Write Error")
-      -- TODO (DRV-12): Re-queue with backoff for 5xx errors
-    end
-  end)
+  writeBatch(batch, false)
+end
+
+--- Drain callback registered with the offline buffer.
+--- Called when the buffer decides it's time to attempt delivery.
+--- @param points string[] Points to send (the full buffer contents).
+local function drainOfflineBuffer(points)
+  if drainInFlight then
+    log:debug("Drain already in flight, skipping")
+    return
+  end
+
+  local count = math.min(#points, constants.MAX_BATCH_SIZE)
+  local batch = {}
+  for i = 1, count do
+    batch[i] = points[i]
+  end
+
+  drainInFlight = true
+  writeBatch(batch, true)
 end
 
 ---------------------------------------------------------------------------
@@ -267,6 +400,33 @@ end
 --- @param propertyValue string
 function OPC.Log_Level(propertyValue)
   log:setLevel(propertyValue)
+end
+
+--- @param propertyValue string
+function OPC.Max_Buffer_Size(propertyValue)
+  log:trace("OPC.Max_Buffer_Size('%s')", propertyValue)
+  local n = tonumber(propertyValue)
+  if n and n > 0 then
+    config.maxBufferPoints = n
+    if offlineBuffer then
+      offlineBuffer:configure({ max_points = n })
+    end
+  end
+end
+
+--- @param propertyValue string
+function OPC.Outage_Notification_Threshold(propertyValue)
+  log:trace("OPC.Outage_Notification_Threshold('%s')", propertyValue)
+  local secs = constants.OUTAGE_THRESHOLDS and constants.OUTAGE_THRESHOLDS[propertyValue]
+  if not secs then
+    secs = tonumber(propertyValue)
+  end
+  if secs and secs > 0 then
+    config.outageThreshold = secs
+    if offlineBuffer then
+      offlineBuffer:configure({ outage_threshold = secs })
+    end
+  end
 end
 
 --- @param propertyValue string
@@ -328,8 +488,24 @@ end
 
 --- Flush Buffer action handler.
 function EC.FlushBuffer()
-  log:info("Action: Flush Buffer (%d points buffered)", #writeBuffer)
+  log:info("Action: Flush Buffer (%d points in-memory)", #writeBuffer)
   flushBuffer()
+end
+
+--- Force drain offline buffer action handler.
+function EC.DrainOfflineBuffer()
+  log:info("Action: Drain Offline Buffer (%d points buffered)", offlineBuffer and offlineBuffer:size() or 0)
+  if offlineBuffer then
+    offlineBuffer:triggerDrain()
+  end
+end
+
+--- Clear offline buffer action handler.
+function EC.ClearOfflineBuffer()
+  log:info("Action: Clear Offline Buffer")
+  if offlineBuffer then
+    offlineBuffer:clear()
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -353,6 +529,26 @@ function OnDriverLateInit()
   config.precision = Properties["Write Precision"] or constants.DEFAULT_PRECISION
   local intervalStr = Properties["Default Write Interval"] or "1m"
   config.writeInterval = constants.WRITE_INTERVALS[intervalStr] or constants.DEFAULT_WRITE_INTERVAL
+
+  local maxBufStr = Properties["Max Buffer Size"]
+  config.maxBufferPoints = tonumber(maxBufStr) or constants.MAX_BUFFER_SIZE
+
+  local outageStr = Properties["Outage Notification Threshold"]
+  local outageSecs = constants.OUTAGE_THRESHOLDS and constants.OUTAGE_THRESHOLDS[outageStr]
+  config.outageThreshold = outageSecs or tonumber(outageStr) or constants.DEFAULT_OUTAGE_THRESHOLD
+
+  -- Initialize offline buffer
+  offlineBuffer = OfflineBuffer:new({
+    max_points = config.maxBufferPoints,
+    max_bytes = config.maxBufferBytes,
+    outage_threshold = config.outageThreshold,
+  })
+  offlineBuffer:setCallbacks(drainOfflineBuffer, onBufferStateChange, onOutageThreshold)
+
+  local bufferedCount = offlineBuffer:size()
+  if bufferedCount > 0 then
+    log:info("Resuming: %d point(s) in offline buffer from previous session", bufferedCount)
+  end
 
   -- Load saved measurement configurations
   loadMeasurements()
@@ -380,9 +576,15 @@ function OnDriverDestroyed()
     flushTimerId = nil
   end
 
-  -- Attempt to flush remaining buffer
+  -- Attempt to flush remaining in-memory buffer
   if #writeBuffer > 0 then
-    log:info("Flushing %d remaining points before shutdown", #writeBuffer)
+    log:info("Flushing %d remaining in-memory point(s) before shutdown", #writeBuffer)
     flushBuffer()
+  end
+
+  -- Destroy offline buffer (cancels retry timers)
+  if offlineBuffer then
+    offlineBuffer:destroy()
+    offlineBuffer = nil
   end
 end

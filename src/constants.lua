@@ -44,11 +44,30 @@ return {
 
   --- Maximum number of points to buffer when offline.
   --- @type number
-  MAX_BUFFER_SIZE = 50000,
+  MAX_BUFFER_SIZE = 10000,
 
-  --- Retry intervals in seconds (exponential backoff).
+  --- Maximum offline buffer size in bytes (~1 MB).
+  --- @type number
+  MAX_BUFFER_BYTES = 1048576,
+
+  --- Exponential backoff schedule for reconnect retries (seconds).
+  --- Sequence: 5s, 15s, 30s, 1m, 5m, 15m.
   --- @type number[]
-  RETRY_INTERVALS = { 1, 2, 5, 10, 30, 60 },
+  RETRY_INTERVALS = { 5, 15, 30, 60, 300, 900 },
+
+  --- Default outage notification threshold in seconds (5 minutes).
+  --- @type number
+  DEFAULT_OUTAGE_THRESHOLD = 300,
+
+  --- Outage threshold options (display value -> seconds).
+  --- @type table<string, number>
+  OUTAGE_THRESHOLDS = {
+    ["1m"]  = 60,
+    ["5m"]  = 300,
+    ["15m"] = 900,
+    ["30m"] = 1800,
+    ["1h"]  = 3600,
+  },
 
   --- InfluxDB line protocol value type identifiers.
   --- @type table<string, string>
