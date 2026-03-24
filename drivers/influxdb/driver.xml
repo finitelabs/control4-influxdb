@@ -1,0 +1,212 @@
+<devicedata>
+  <name>InfluxDB Data Logger</name>
+  <version/>
+  <manufacturer>Finite Labs</manufacturer>
+  <model>InfluxDB Data Logger</model>
+  <creator>Derek Miller</creator>
+  <small image_source="c4z">icons/device_sm.png</small>
+  <large image_source="c4z">icons/device_lg.png</large>
+  <control>lua_gen</control>
+  <controlmethod>ip</controlmethod>
+  <driver>DriverWorks</driver>
+  <copyright>Copyright 2026 Finite Labs, LLC. All rights reserved.</copyright>
+  <created>03/24/2026 12:00:00 PM</created>
+  <modified/>
+  <combo>true</combo>
+  <minimum_os_version>3.3.0</minimum_os_version>
+  <composer_categories>
+    <category>Utility</category>
+  </composer_categories>
+  <conditionals>
+    <conditional>
+      <id>1</id>
+      <name>INFLUXDB_CONNECTED</name>
+      <type>BOOL</type>
+      <condition_statement>InfluxDB connection status</condition_statement>
+      <description>NAME is STRING</description>
+      <true_text>Connected</true_text>
+      <false_text>Disconnected</false_text>
+    </conditional>
+  </conditionals>
+  <events>
+    <event>
+      <id>1</id>
+      <name>Connected</name>
+      <description>When NAME connects to InfluxDB</description>
+    </event>
+    <event>
+      <id>2</id>
+      <name>Disconnected</name>
+      <description>When NAME disconnects from InfluxDB</description>
+    </event>
+    <event>
+      <id>3</id>
+      <name>Write Error</name>
+      <description>When NAME encounters a write error</description>
+    </event>
+    <event>
+      <id>4</id>
+      <name>Buffer Full</name>
+      <description>When NAME write buffer is full</description>
+    </event>
+  </events>
+  <config>
+    <script file="driver.lua" jit="1"/>
+    <documentation file="www/documentation/index.html"/>
+    <properties>
+      <property>
+        <name>Cloud</name>
+        <type>LABEL</type>
+        <default>Cloud Settings</default>
+      </property>
+      <!-- #ifdef DRIVERCENTRAL -->
+      <property>
+        <name>Cloud Status</name>
+        <default/>
+        <type>STRING</type>
+        <readonly>true</readonly>
+      </property>
+      <!-- #endif -->
+      <property>
+        <name>Automatic Updates</name>
+        <type>LIST</type>
+        <items>
+          <item>Off</item>
+          <item>On</item>
+        </items>
+        <default>On</default>
+      </property>
+      <!-- #ifndef DRIVERCENTRAL -->
+      <property>
+        <name>Update Channel</name>
+        <type>LIST</type>
+        <default>Production</default>
+        <items>
+          <item>Production</item>
+          <item>Prerelease</item>
+        </items>
+      </property>
+      <!-- #endif -->
+      <property>
+        <name>Driver</name>
+        <type>LABEL</type>
+        <default>Driver Settings</default>
+      </property>
+      <property>
+        <name>Driver Status</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Driver Version</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Log Level</name>
+        <type>LIST</type>
+        <default>3 - Info</default>
+        <items>
+          <item>0 - Fatal</item>
+          <item>1 - Error</item>
+          <item>2 - Warning</item>
+          <item>3 - Info</item>
+          <item>4 - Debug</item>
+          <item>5 - Trace</item>
+          <item>6 - Ultra</item>
+        </items>
+      </property>
+      <property>
+        <name>Log Mode</name>
+        <type>LIST</type>
+        <default>Off</default>
+        <items>
+          <item>Off</item>
+          <item>Print</item>
+          <item>Log</item>
+          <item>Print and Log</item>
+        </items>
+      </property>
+      <property>
+        <name>InfluxDB Settings</name>
+        <type>LABEL</type>
+        <default>InfluxDB Connection</default>
+      </property>
+      <property>
+        <name>InfluxDB URL</name>
+        <type>STRING</type>
+        <default/>
+        <description>InfluxDB server URL (e.g. http://influxdb.local:8086)</description>
+      </property>
+      <property>
+        <name>API Token</name>
+        <type>STRING</type>
+        <default/>
+        <password>true</password>
+        <description>InfluxDB API authentication token</description>
+      </property>
+      <property>
+        <name>Database</name>
+        <type>STRING</type>
+        <default/>
+        <description>InfluxDB database name</description>
+      </property>
+      <property>
+        <name>Write Precision</name>
+        <type>LIST</type>
+        <default>ms</default>
+        <items>
+          <item>ns</item>
+          <item>us</item>
+          <item>ms</item>
+          <item>s</item>
+        </items>
+      </property>
+      <property>
+        <name>Default Write Interval</name>
+        <type>LIST</type>
+        <default>1m</default>
+        <items>
+          <item>10s</item>
+          <item>30s</item>
+          <item>1m</item>
+          <item>5m</item>
+          <item>15m</item>
+        </items>
+      </property>
+      <property>
+        <name>Measurements</name>
+        <type>LABEL</type>
+        <default>Measurement Configuration</default>
+      </property>
+      <property>
+        <name>Measurement Name</name>
+        <type>STRING</type>
+        <default/>
+        <description>Enter a name and click Add Measurement</description>
+      </property>
+    </properties>
+    <actions>
+      <!-- #ifndef DRIVERCENTRAL -->
+      <action>
+        <name>Update Drivers</name>
+        <command>UpdateDrivers</command>
+      </action>
+      <!-- #endif -->
+      <action>
+        <name>Test Connection</name>
+        <command>TestConnection</command>
+      </action>
+      <action>
+        <name>Add Measurement</name>
+        <command>AddMeasurement</command>
+      </action>
+      <action>
+        <name>Flush Buffer</name>
+        <command>FlushBuffer</command>
+      </action>
+    </actions>
+  </config>
+</devicedata>
