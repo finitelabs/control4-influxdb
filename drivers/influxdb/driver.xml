@@ -187,6 +187,50 @@
         <default/>
         <description>Enter a name and click Add Measurement</description>
       </property>
+      <property>
+        <name>Select Measurement</name>
+        <type>DYNAMIC_LIST</type>
+        <tooltip>Select a measurement to configure</tooltip>
+      </property>
+      <property>
+        <name>Select Variable</name>
+        <type>VARIABLE_SELECTOR</type>
+        <default></default>
+        <variabletype>all</variabletype>
+      </property>
+      <property>
+        <name>Configured Variables</name>
+        <type>STRING</type>
+        <default></default>
+        <readonly>true</readonly>
+      </property>
+      <property>
+        <name>Remove Variable</name>
+        <type>DYNAMIC_LIST</type>
+        <tooltip>Select a variable to remove from this measurement</tooltip>
+      </property>
+      <property>
+        <name>Measurement Write Interval</name>
+        <type>LIST</type>
+        <default>Default</default>
+        <items>
+          <item>Default</item>
+          <item>10s</item>
+          <item>30s</item>
+          <item>1m</item>
+          <item>5m</item>
+          <item>15m</item>
+        </items>
+      </property>
+      <property>
+        <name>Measurement Enabled</name>
+        <type>LIST</type>
+        <default>On</default>
+        <items>
+          <item>On</item>
+          <item>Off</item>
+        </items>
+      </property>
     </properties>
     <actions>
       <!-- #ifndef DRIVERCENTRAL -->
@@ -206,6 +250,22 @@
       <action>
         <name>Flush Buffer</name>
         <command>FlushBuffer</command>
+      </action>
+      <action>
+        <name>Add as Field</name>
+        <command>AddAsField</command>
+      </action>
+      <action>
+        <name>Add as Tag</name>
+        <command>AddAsTag</command>
+      </action>
+      <action>
+        <name>Remove Selected Variable</name>
+        <command>RemoveSelectedVariable</command>
+      </action>
+      <action>
+        <name>Remove Measurement</name>
+        <command>RemoveMeasurement</command>
       </action>
     </actions>
   </config>
