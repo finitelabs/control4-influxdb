@@ -1,6 +1,4 @@
 --- InfluxDB Write Client and Batch Engine
---- DRV-10: HTTP write client with full line protocol support
---- DRV-11: Per-measurement batch engine with flush timers, dedup, and metrics
 
 local log = require("lib.logging")
 local constants = require("constants")
@@ -15,7 +13,7 @@ local InfluxWriter = {}
 InfluxWriter.__index = InfluxWriter
 
 ---------------------------------------------------------------------------
--- DRV-10: Line Protocol Helpers
+-- Line Protocol Helpers
 ---------------------------------------------------------------------------
 
 --- Escape special characters in a measurement name.
@@ -151,7 +149,7 @@ function InfluxWriter.buildLine(measurement, tags, fields, timestampMs)
 end
 
 ---------------------------------------------------------------------------
--- DRV-10: HTTP Write Client
+-- HTTP Write Client
 ---------------------------------------------------------------------------
 
 --- Error classification constants.
@@ -245,7 +243,7 @@ function InfluxWriter.postBatch(url, token, lines)
 end
 
 ---------------------------------------------------------------------------
--- DRV-11: Batch Engine
+-- Batch Engine
 ---------------------------------------------------------------------------
 
 --- Create a new InfluxWriter instance (batch engine).
