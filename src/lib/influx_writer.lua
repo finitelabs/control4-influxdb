@@ -3,6 +3,7 @@
 local log = require("lib.logging")
 local constants = require("constants")
 local Deferred = require("deferred")
+local values = require("lib.values")
 
 ---------------------------------------------------------------------------
 -- Module
@@ -306,17 +307,14 @@ function InfluxWriter:_getMeasurementState(measurementName, intervalSecs, maxBuf
   return self._measurements[measurementName]
 end
 
---- Update driver variables with current metrics.
+--- Update driver variables with current metrics via the values lib.
 function InfluxWriter:_updateMetricVariables()
   local m = self._metrics
-  -- Use pcall so this never crashes if variables aren't defined yet
-  pcall(function()
-    C4:SetVariable("INFLUX_POINTS_BUFFERED", tostring(m.pointsBuffered))
-    C4:SetVariable("INFLUX_POINTS_WRITTEN", tostring(m.pointsWritten))
-    C4:SetVariable("INFLUX_POINTS_DROPPED", tostring(m.pointsDropped))
-    C4:SetVariable("INFLUX_WRITE_ERRORS", tostring(m.writeErrors))
-    C4:SetVariable("INFLUX_LAST_WRITE_TS", m.lastWriteTimestamp > 0 and tostring(m.lastWriteTimestamp) or "")
-  end)
+  values:update("INFLUX_POINTS_BUFFERED", m.pointsBuffered, "INT")
+  values:update("INFLUX_POINTS_WRITTEN", m.pointsWritten, "INT")
+  values:update("INFLUX_POINTS_DROPPED", m.pointsDropped, "INT")
+  values:update("INFLUX_WRITE_ERRORS", m.writeErrors, "INT")
+  values:update("INFLUX_LAST_WRITE_TS", m.lastWriteTimestamp > 0 and m.lastWriteTimestamp or "", "STRING")
 end
 
 --- Enqueue a data point for a measurement. Handles dedup and FIFO eviction.
