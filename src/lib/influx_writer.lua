@@ -4,7 +4,7 @@
 
 local log = require("lib.logging")
 local constants = require("constants")
-local Deferred = require("vendor.deferred")
+local Deferred = require("deferred")
 
 ---------------------------------------------------------------------------
 -- Module
