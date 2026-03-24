@@ -316,6 +316,10 @@
         <command>FlushBuffer</command>
       </action>
       <action>
+        <name>Force Flush All</name>
+        <command>ForceFlushAll</command>
+      </action>
+      <action>
         <name>Drain Offline Buffer</name>
         <command>DrainOfflineBuffer</command>
       </action>
@@ -325,4 +329,36 @@
       </action>
     </actions>
   </config>
+  <variables>
+    <variable>
+      <name>INFLUX_POINTS_BUFFERED</name>
+      <description>Number of data points currently buffered awaiting flush</description>
+      <vartype>STRING</vartype>
+      <default>0</default>
+    </variable>
+    <variable>
+      <name>INFLUX_POINTS_WRITTEN</name>
+      <description>Total data points successfully written to InfluxDB</description>
+      <vartype>STRING</vartype>
+      <default>0</default>
+    </variable>
+    <variable>
+      <name>INFLUX_POINTS_DROPPED</name>
+      <description>Total data points dropped due to permanent errors or buffer eviction</description>
+      <vartype>STRING</vartype>
+      <default>0</default>
+    </variable>
+    <variable>
+      <name>INFLUX_WRITE_ERRORS</name>
+      <description>Total write error count since driver start</description>
+      <vartype>STRING</vartype>
+      <default>0</default>
+    </variable>
+    <variable>
+      <name>INFLUX_LAST_WRITE_TS</name>
+      <description>Unix timestamp of the last successful write to InfluxDB</description>
+      <vartype>STRING</vartype>
+      <default></default>
+    </variable>
+  </variables>
 </devicedata>

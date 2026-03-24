@@ -24,6 +24,7 @@ local events = require("lib.events")
 local conditionals = require("lib.conditionals")
 local constants = require("constants")
 local OfflineBuffer = require("lib.offline_buffer")
+local InfluxWriter = require("lib.influx_writer")
 
 ---------------------------------------------------------------------------
 -- State
@@ -69,12 +70,17 @@ local offlineBuffer
 local measurements = {}
 
 --- Write buffer: array of line-protocol strings waiting to be flushed.
+--- Kept for legacy FlushBuffer action compatibility; primary buffering is via influxWriter.
 --- @type string[]
 local writeBuffer = {}
 
---- Flush timer ID.
+--- Flush timer ID (legacy global timer — measurements use per-measurement timers via influxWriter).
 --- @type number|nil
 local flushTimerId = nil
+
+--- InfluxWriter batch engine instance.
+--- @type InfluxWriter
+local influxWriter = nil
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -588,6 +594,31 @@ local function drainOfflineBuffer(points)
   writeBatch(batch, true)
 end
 
+--- Initialize the InfluxWriter batch engine.
+local function initInfluxWriter()
+  influxWriter = InfluxWriter:new({
+    getConfig = function()
+      return {
+        url = config.url,
+        token = config.token,
+        database = config.database,
+        precision = config.precision,
+      }
+    end,
+    onConnected = function(connected)
+      updateConnectionStatus(connected)
+    end,
+    onWriteError = function(errMsg)
+      log:error("InfluxWriter error: %s", errMsg or "unknown")
+      events.fire("Write Error")
+    end,
+    onBufferFull = function()
+      events.fire("Buffer Full")
+    end,
+  })
+  log:info("InfluxWriter batch engine initialized")
+end
+
 ---------------------------------------------------------------------------
 -- Property Changed Handlers
 ---------------------------------------------------------------------------
@@ -818,7 +849,7 @@ function EC.AddMeasurement()
   UpdateProperty("Measurement Name", "")
 end
 
---- Flush Buffer action handler.
+--- Flush Buffer action handler (legacy global buffer).
 function EC.FlushBuffer()
   log:info("Action: Flush Buffer (%d points in-memory)", #writeBuffer)
   flushBuffer()
@@ -838,6 +869,16 @@ function EC.ClearOfflineBuffer()
   if offlineBuffer then
     offlineBuffer:clear()
   end
+end
+
+--- Force Flush All action handler — flushes all per-measurement batches immediately.
+function EC.ForceFlushAll()
+  log:info("Action: Force Flush All")
+  if influxWriter then
+    influxWriter:forceFlushAll()
+  end
+  -- Also flush legacy global buffer
+  flushBuffer()
 end
 
 ---------------------------------------------------------------------------
@@ -889,6 +930,9 @@ function OnDriverLateInit()
   refreshMeasurementList()
   refreshMeasurementUI()
 
+  -- Initialize InfluxWriter batch engine
+  initInfluxWriter()
+
   -- Fire OnPropertyChanged for all properties to ensure consistent state
   for p, _ in pairs(Properties) do
     local status, err = pcall(OnPropertyChanged, p)
@@ -911,6 +955,11 @@ function OnDriverDestroyed()
   if flushTimerId then
     C4:KillTimer(flushTimerId)
     flushTimerId = nil
+  end
+
+  -- Shut down the InfluxWriter batch engine (flushes all per-measurement buffers)
+  if influxWriter then
+    influxWriter:shutdown()
   end
 
   -- Attempt to flush remaining in-memory buffer
