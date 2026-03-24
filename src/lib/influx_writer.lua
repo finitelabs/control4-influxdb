@@ -4,6 +4,7 @@
 
 local log = require("lib.logging")
 local constants = require("constants")
+local Deferred = require("vendor.deferred")
 
 ---------------------------------------------------------------------------
 -- Module
@@ -170,15 +171,18 @@ local function isRetriable(responseCode)
 end
 
 --- Post a batch of line-protocol strings to InfluxDB.
---- Calls callback(ok, retriable, retryAfterSecs, errMsg) when done.
+--- Returns a Deferred that resolves with { count = number } on success,
+--- or rejects with { retriable = bool, retryAfter = number|nil, errMsg = string } on failure.
 --- @param url string        Full write endpoint URL
 --- @param token string      API token (may be empty string)
 --- @param lines string[]    Array of line-protocol strings
---- @param callback function callback(ok:bool, retriable:bool, retryAfter:number|nil, errMsg:string|nil)
-function InfluxWriter.postBatch(url, token, lines, callback)
+--- @return Deferred
+function InfluxWriter.postBatch(url, token, lines)
+  local d = Deferred.new()
+
   if not lines or #lines == 0 then
-    callback(true, false, nil, nil)
-    return
+    d:resolve({ count = 0 })
+    return d
   end
 
   local payload = table.concat(lines, "\n")
@@ -196,19 +200,19 @@ function InfluxWriter.postBatch(url, token, lines, callback)
     -- Network-level error
     if strError and strError ~= "" then
       log:error("InfluxWriter: network error: %s", strError)
-      callback(false, true, nil, "network error: " .. strError)
+      d:reject({ retriable = true, retryAfter = nil, errMsg = "network error: " .. strError })
       return
     end
 
     if responseCode == 200 or responseCode == 204 then
       log:debug("InfluxWriter: write OK (HTTP %d), %d points", responseCode, #lines)
-      callback(true, false, nil, nil)
+      d:resolve({ count = #lines })
     elseif responseCode == 401 then
       log:error("InfluxWriter: authentication failed (HTTP 401) — check API token")
-      callback(false, false, nil, "authentication error (HTTP 401)")
+      d:reject({ retriable = false, retryAfter = nil, errMsg = "authentication error (HTTP 401)" })
     elseif responseCode == 422 then
       log:error("InfluxWriter: parse error (HTTP 422): %s", strData or "")
-      callback(false, false, nil, "line protocol parse error (HTTP 422): " .. (strData or ""))
+      d:reject({ retriable = false, retryAfter = nil, errMsg = "line protocol parse error (HTTP 422): " .. (strData or "") })
     elseif responseCode == 429 then
       -- Parse Retry-After header if present
       local retryAfter = nil
@@ -219,15 +223,17 @@ function InfluxWriter.postBatch(url, token, lines, callback)
         end
       end
       log:warning("InfluxWriter: rate limited (HTTP 429), retry-after=%s", tostring(retryAfter))
-      callback(false, true, retryAfter, "rate limited (HTTP 429)")
+      d:reject({ retriable = true, retryAfter = retryAfter, errMsg = "rate limited (HTTP 429)" })
     elseif responseCode >= 500 then
       log:error("InfluxWriter: server error (HTTP %d): %s", responseCode, strData or "")
-      callback(false, isRetriable(responseCode), nil, string.format("server error (HTTP %d)", responseCode))
+      d:reject({ retriable = isRetriable(responseCode), retryAfter = nil, errMsg = string.format("server error (HTTP %d)", responseCode) })
     else
       log:error("InfluxWriter: unexpected response (HTTP %d): %s", responseCode, strData or "")
-      callback(false, false, nil, string.format("unexpected HTTP %d", responseCode))
+      d:reject({ retriable = false, retryAfter = nil, errMsg = string.format("unexpected HTTP %d", responseCode) })
     end
   end)
+
+  return d
 end
 
 ---------------------------------------------------------------------------
@@ -429,8 +435,8 @@ function InfluxWriter:_flushMeasurement(measurementName, force)
 
   log:info("InfluxWriter: flushing %d points for '%s' (%d remaining)", batchSize, measurementName, #state.buffer)
 
-  InfluxWriter.postBatch(url, cfg.token or "", batch, function(ok, retriable, retryAfter, errMsg)
-    if ok then
+  InfluxWriter.postBatch(url, cfg.token or "", batch)
+    :next(function(result)
       self._metrics.pointsWritten = self._metrics.pointsWritten + batchSize
       self._metrics.lastWriteTimestamp = os.time()
       self:_updateMetricVariables()
@@ -443,15 +449,16 @@ function InfluxWriter:_flushMeasurement(measurementName, force)
       if #state.buffer > 0 then
         self:_armFlushTimer(measurementName, state)
       end
-    else
+    end)
+    :next(nil, function(err)
       self._metrics.writeErrors = self._metrics.writeErrors + 1
       self:_updateMetricVariables()
 
       if self._onWriteError then
-        pcall(self._onWriteError, errMsg)
+        pcall(self._onWriteError, err.errMsg)
       end
 
-      if retriable then
+      if err.retriable then
         -- Put batch back at the front of the buffer
         local restored = {}
         for _, l in ipairs(batch) do
@@ -464,7 +471,7 @@ function InfluxWriter:_flushMeasurement(measurementName, force)
         self._metrics.pointsBuffered = self._metrics.pointsBuffered + batchSize
 
         -- Schedule retry
-        local delaySecs = retryAfter or constants.RETRY_INTERVALS[1]
+        local delaySecs = err.retryAfter or constants.RETRY_INTERVALS[1]
         log:info("InfluxWriter: scheduling retry for '%s' in %ds", measurementName, delaySecs)
         state.timerId = C4:AddTimer(delaySecs * 1000, "MILLISECONDS", false, function()
           state.timerId = nil
@@ -476,7 +483,7 @@ function InfluxWriter:_flushMeasurement(measurementName, force)
           "InfluxWriter: dropping %d points for '%s' (permanent error: %s)",
           batchSize,
           measurementName,
-          errMsg or "unknown"
+          err.errMsg or "unknown"
         )
         self._metrics.pointsDropped = self._metrics.pointsDropped + batchSize
         self:_updateMetricVariables()
@@ -490,8 +497,7 @@ function InfluxWriter:_flushMeasurement(measurementName, force)
           self:_armFlushTimer(measurementName, state)
         end
       end
-    end
-  end)
+    end)
 end
 
 --- Force-flush all measurement buffers immediately.
