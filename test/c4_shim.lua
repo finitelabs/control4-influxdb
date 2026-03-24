@@ -64,6 +64,27 @@ function C4:FileWrite()
   return 0
 end
 
+--- Variable listener stubs (used by the subscription engine via drivers-common-public)
+function C4:RegisterVariableListener(idDevice, idVariable) end
+function C4:UnregisterVariableListener(idDevice, idVariable) end
+
+--- Return a mock variable table for the given device.
+--- @param idDevice number
+--- @return table<string, {name: string}>
+function C4:GetDeviceVariables(idDevice)
+  return {}
+end
+
+--- Return a mock display name for a device.
+--- @param idDevice number
+--- @return string
+function C4:GetDeviceDisplayName(idDevice)
+  return string.format("MockDevice%d", idDevice)
+end
+
+--- Stub for updating a property list (used by DYNAMIC_LIST properties).
+function C4:UpdatePropertyList(name, options, current) end
+
 --- Logging functions for C4 compatibility
 function C4:ErrorLog(message)
   io.stderr:write(message .. "\n")

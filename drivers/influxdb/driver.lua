@@ -64,6 +64,21 @@ local writeBuffer = {}
 local flushTimerId = nil
 
 ---------------------------------------------------------------------------
+-- Variable Subscription State
+---------------------------------------------------------------------------
+
+--- Current value cache for subscribed variables.
+--- Structure: varCache[deviceId][variableId] = { value, timestamp, varName }
+--- @type table<number, table<number, table>>
+local varCache = {}
+
+--- Reference count tracking which measurements subscribe to each variable.
+--- Structure: subscriptionRefs["deviceId:variableId"] = { [measName] = kind }
+--- where kind is "fields" or "tags"
+--- @type table<string, table<string, string>>
+local subscriptionRefs = {}
+
+---------------------------------------------------------------------------
 -- Helpers
 ---------------------------------------------------------------------------
 
@@ -155,6 +170,423 @@ end
 --- Save measurement configurations to persistent storage.
 local function saveMeasurements()
   persist.set("measurements", measurements)
+end
+
+---------------------------------------------------------------------------
+-- Variable Subscription Engine
+---------------------------------------------------------------------------
+
+--- Parse a variable ID string "deviceId:variableId" into its numeric components.
+--- @param varIdStr string  e.g. "100:5"
+--- @return number|nil deviceId
+--- @return number|nil variableId
+local function parseVarId(varIdStr)
+  if type(varIdStr) ~= "string" then
+    return nil, nil
+  end
+  local devStr, varStr = varIdStr:match("^(%d+):(%d+)$")
+  if not devStr then
+    return nil, nil
+  end
+  return tonumber(devStr), tonumber(varStr)
+end
+
+--- Look up the display name for a variable.
+--- @param deviceId number
+--- @param variableId number
+--- @return string  Human-readable variable name, or "var<id>" fallback.
+local function getVariableName(deviceId, variableId)
+  local ok, vars = pcall(C4.GetDeviceVariables, C4, deviceId)
+  if ok and vars then
+    local entry = vars[tostring(variableId)]
+    if entry and entry.name and entry.name ~= "" then
+      return entry.name
+    end
+  end
+  return string.format("var%d", variableId)
+end
+
+--- Look up the display name for a device.
+--- @param deviceId number
+--- @return string  Device display name, or "device<id>" fallback.
+local function getDeviceName(deviceId)
+  local ok, name = pcall(C4.GetDeviceDisplayName, C4, deviceId)
+  if ok and name and name ~= "" then
+    return name
+  end
+  return string.format("device%d", deviceId)
+end
+
+--- Escape a string value for InfluxDB line protocol (field/tag value).
+--- Tag values and string field values must have commas, spaces, and = escaped.
+--- @param s string
+--- @param isTag boolean  True if this is a tag value (stricter escaping).
+--- @return string
+local function escapeInflux(s, isTag)
+  s = tostring(s)
+  -- Always escape commas, spaces, and backslashes
+  s = s:gsub("\\", "\\\\")
+  s = s:gsub(",", "\\,")
+  s = s:gsub(" ", "\\ ")
+  if isTag then
+    s = s:gsub("=", "\\=")
+  end
+  return s
+end
+
+--- Coerce a value string to the appropriate InfluxDB field representation.
+--- Numeric values become floats, booleans become booleans, else quoted strings.
+--- @param val string
+--- @return string  InfluxDB field value representation.
+local function coerceFieldValue(val)
+  if val == nil then
+    return '""'
+  end
+  local s = tostring(val)
+  -- Try integer first (no decimal point)
+  local n = tonumber(s)
+  if n then
+    -- Use integer notation if it is a whole number
+    if math.floor(n) == n and math.abs(n) < 2^53 then
+      return string.format("%di", math.floor(n))
+    end
+    return string.format("%g", n)
+  end
+  -- Boolean
+  local low = s:lower()
+  if low == "true" or low == "false" then
+    return low
+  end
+  -- String: wrap in quotes, escape internal quotes
+  s = s:gsub('"', '\\"')
+  return string.format('"%s"', s)
+end
+
+--- Build and enqueue an InfluxDB line-protocol point from the current varCache state
+--- for a single measurement when a field variable changes.
+--- Only enqueues if the measurement is enabled and all configured field variables
+--- have at least one cached value.
+--- @param measName string
+local function enqueueMeasurementPoint(measName)
+  local meas = measurements[measName]
+  if not meas or meas.enabled == false then
+    return
+  end
+
+  local fieldPairs = {}
+  for _, varIdStr in ipairs(meas.fields or {}) do
+    local devId, varId = parseVarId(varIdStr)
+    if devId and varId then
+      local cached = varCache[devId] and varCache[devId][varId]
+      if not cached then
+        -- Missing a required field value — skip this point
+        log:debug(
+          "enqueuePoint(%s): waiting for initial value of %s, skipping",
+          measName,
+          varIdStr
+        )
+        return
+      end
+      local varName = cached.varName or getVariableName(devId, varId)
+      fieldPairs[#fieldPairs + 1] = string.format(
+        "%s=%s",
+        escapeInflux(varName, false),
+        coerceFieldValue(cached.value)
+      )
+    end
+  end
+
+  if #fieldPairs == 0 then
+    log:debug("enqueuePoint(%s): no fields configured, skipping", measName)
+    return
+  end
+
+  -- Build tag set
+  local tagPairs = {}
+  for _, varIdStr in ipairs(meas.tags or {}) do
+    local devId, varId = parseVarId(varIdStr)
+    if devId and varId then
+      local cached = varCache[devId] and varCache[devId][varId]
+      if cached and cached.value ~= nil and tostring(cached.value) ~= "" then
+        local varName = cached.varName or getVariableName(devId, varId)
+        tagPairs[#tagPairs + 1] = string.format(
+          "%s=%s",
+          escapeInflux(varName, true),
+          escapeInflux(cached.value, true)
+        )
+      end
+    end
+  end
+
+  -- Build line protocol: measurement[,tags] fields [timestamp]
+  local measurementEscaped = escapeInflux(measName, true)
+  local line
+  if #tagPairs > 0 then
+    line = string.format(
+      "%s,%s %s",
+      measurementEscaped,
+      table.concat(tagPairs, ","),
+      table.concat(fieldPairs, ",")
+    )
+  else
+    line = string.format("%s %s", measurementEscaped, table.concat(fieldPairs, ","))
+  end
+
+  -- Cap buffer size
+  if #writeBuffer >= constants.MAX_BUFFER_SIZE then
+    log:warning("Write buffer full (%d points), dropping oldest point", #writeBuffer)
+    table.remove(writeBuffer, 1)
+    events.fire("Buffer Full")
+  end
+
+  writeBuffer[#writeBuffer + 1] = line
+  log:debug("Enqueued point for '%s': %s", measName, line)
+end
+
+--- Callback invoked when a subscribed variable's value changes.
+--- Updates the value cache and enqueues data points for all measurements
+--- that reference this variable as a field.
+--- @param deviceId number
+--- @param variableId number
+--- @param strValue string
+local function onVariableChanged(deviceId, variableId, strValue)
+  log:trace(
+    "onVariableChanged: device=%d var=%d value=%s",
+    deviceId,
+    variableId,
+    tostring(strValue)
+  )
+
+  -- Update the cache
+  varCache[deviceId] = varCache[deviceId] or {}
+  local entry = varCache[deviceId][variableId]
+  if not entry then
+    varCache[deviceId][variableId] = {
+      value = strValue,
+      timestamp = os.time(),
+      varName = getVariableName(deviceId, variableId),
+    }
+  else
+    entry.value = strValue
+    entry.timestamp = os.time()
+  end
+
+  -- Enqueue a data point for each measurement that uses this variable as a FIELD
+  local varIdStr = string.format("%d:%d", deviceId, variableId)
+  local refs = subscriptionRefs[varIdStr]
+  if refs then
+    for measName, kind in pairs(refs) do
+      if kind == "fields" then
+        enqueueMeasurementPoint(measName)
+      end
+      -- Tag-only variables update the cache but don't trigger a new point by themselves
+    end
+  end
+end
+
+--- Subscribe to a single variable on behalf of a measurement.
+--- Idempotent: if already subscribed, only adds the measurement reference.
+--- @param varIdStr string  "deviceId:variableId"
+--- @param measName string
+--- @param kind string  "fields" or "tags"
+local function subscribeToVariable(varIdStr, measName, kind)
+  local devId, varId = parseVarId(varIdStr)
+  if not devId or not varId then
+    log:warning(
+      "subscribeToVariable: invalid variable ID '%s' for measurement '%s'",
+      varIdStr,
+      measName
+    )
+    return
+  end
+
+  -- Track the measurement reference
+  subscriptionRefs[varIdStr] = subscriptionRefs[varIdStr] or {}
+  subscriptionRefs[varIdStr][measName] = kind
+
+  -- Only call RegisterVariableListener once per deviceId:variableId pair
+  local refCount = 0
+  for _ in pairs(subscriptionRefs[varIdStr]) do
+    refCount = refCount + 1
+  end
+
+  if refCount == 1 then
+    -- First subscriber for this variable — register the listener
+    RegisterVariableListener(devId, varId, onVariableChanged)
+    log:info(
+      "Subscribed to variable %s (%s on device %s) for measurement '%s' as %s",
+      varIdStr,
+      getVariableName(devId, varId),
+      getDeviceName(devId),
+      measName,
+      kind
+    )
+  else
+    log:debug(
+      "Variable %s already subscribed (%d refs), added measurement '%s' as %s",
+      varIdStr,
+      refCount,
+      measName,
+      kind
+    )
+  end
+end
+
+--- Unsubscribe a measurement from all of its configured variables.
+--- If no other measurements reference a variable, the listener is unregistered.
+--- @param measName string
+local function unsubscribeFromMeasurement(measName)
+  local meas = measurements[measName]
+  if not meas then
+    return
+  end
+
+  local allVarIds = {}
+  for _, varIdStr in ipairs(meas.fields or {}) do
+    allVarIds[varIdStr] = "fields"
+  end
+  for _, varIdStr in ipairs(meas.tags or {}) do
+    allVarIds[varIdStr] = "tags"
+  end
+
+  for varIdStr, _ in pairs(allVarIds) do
+    local refs = subscriptionRefs[varIdStr]
+    if refs then
+      refs[measName] = nil
+      -- Check if any other measurements still reference this variable
+      local remaining = 0
+      for _ in pairs(refs) do
+        remaining = remaining + 1
+      end
+      if remaining == 0 then
+        -- No more references — unregister the listener
+        local devId, varId = parseVarId(varIdStr)
+        if devId and varId then
+          UnregisterVariableListener(devId, varId)
+          -- Clear the cache entry
+          if varCache[devId] then
+            varCache[devId][varId] = nil
+            if not next(varCache[devId]) then
+              varCache[devId] = nil
+            end
+          end
+          log:info(
+            "Unsubscribed from variable %s (no remaining measurements)",
+            varIdStr
+          )
+        end
+        subscriptionRefs[varIdStr] = nil
+      else
+        log:debug(
+          "Variable %s still referenced by %d other measurement(s), keeping subscription",
+          varIdStr,
+          remaining
+        )
+      end
+    end
+  end
+end
+
+--- Subscribe to all variables for a single measurement.
+--- @param measName string
+local function subscribeToMeasurement(measName)
+  local meas = measurements[measName]
+  if not meas then
+    return
+  end
+
+  if meas.enabled == false then
+    log:debug("subscribeToMeasurement('%s'): measurement is disabled, skipping", measName)
+    return
+  end
+
+  for _, varIdStr in ipairs(meas.fields or {}) do
+    subscribeToVariable(varIdStr, measName, "fields")
+  end
+  for _, varIdStr in ipairs(meas.tags or {}) do
+    subscribeToVariable(varIdStr, measName, "tags")
+  end
+end
+
+--- Subscribe to all variables across all measurements.
+--- Called on driver init to restore subscriptions after a restart.
+local function resubscribeAll()
+  local count = 0
+  for measName, _ in pairs(measurements) do
+    subscribeToMeasurement(measName)
+    count = count + 1
+  end
+  log:info("resubscribeAll: set up subscriptions for %d measurement(s)", count)
+end
+
+--- Handle device removal gracefully: remove all cache entries and log a warning.
+--- Subscriptions to a removed device will silently stop firing; we clean up refs.
+--- @param deviceId number
+local function handleDeviceRemoved(deviceId)
+  local cleaned = 0
+  for varIdStr, refs in pairs(subscriptionRefs) do
+    local devId, varId = parseVarId(varIdStr)
+    if devId == deviceId then
+      -- Remove listener (best-effort; device is gone)
+      pcall(UnregisterVariableListener, devId, varId)
+      -- Clear from all measurement references
+      for measName, _ in pairs(refs) do
+        log:warning(
+          "Device %d removed: variable %s used by measurement '%s' is now unavailable",
+          deviceId,
+          varIdStr,
+          measName
+        )
+      end
+      subscriptionRefs[varIdStr] = nil
+      cleaned = cleaned + 1
+    end
+  end
+  -- Clear cache for this device
+  if varCache[deviceId] then
+    varCache[deviceId] = nil
+  end
+  if cleaned > 0 then
+    log:warning(
+      "Cleaned up %d variable subscription(s) for removed device %d",
+      cleaned,
+      deviceId
+    )
+  end
+end
+
+--- Refresh variable subscriptions for a measurement (e.g. after variables are added/removed).
+--- Unsubscribes from any variables no longer in the config, subscribes to new ones.
+--- @param measName string
+local function refreshMeasurementSubscriptions(measName)
+  -- First, unsubscribe this measurement from all current refs
+  for varIdStr, refs in pairs(subscriptionRefs) do
+    if refs[measName] then
+      refs[measName] = nil
+      -- Check if we need to unregister
+      local remaining = 0
+      for _ in pairs(refs) do
+        remaining = remaining + 1
+      end
+      if remaining == 0 then
+        local devId, varId = parseVarId(varIdStr)
+        if devId and varId then
+          UnregisterVariableListener(devId, varId)
+          -- Clear cache entry
+          if varCache[devId] then
+            varCache[devId][varId] = nil
+            if not next(varCache[devId]) then
+              varCache[devId] = nil
+            end
+          end
+        end
+        subscriptionRefs[varIdStr] = nil
+      end
+    end
+  end
+
+  -- Re-subscribe based on current measurement config
+  subscribeToMeasurement(measName)
 end
 
 --- Refresh the "Select Measurement" DYNAMIC_LIST property with current measurement names.
@@ -327,7 +759,8 @@ local function removeMeasurement(name)
     return
   end
 
-  -- TODO (DRV-9): Unsubscribe from variables for this measurement
+  -- Unsubscribe from all variables for this measurement before removing it
+  unsubscribeFromMeasurement(name)
 
   measurements[name] = nil
   saveMeasurements()
@@ -381,6 +814,8 @@ local function addVariable(kind)
     selectedMeasurement
   )
 
+  -- Subscribe to the new variable immediately
+  subscribeToVariable(varId, selectedMeasurement, kind)
   refreshMeasurementUI()
 end
 
@@ -543,6 +978,12 @@ function OPC.Measurement_Enabled(propertyValue)
     if previous ~= enabled then
       saveMeasurements()
       log:info("Updated enabled state for '%s': %s -> %s", selectedMeasurement, tostring(previous), tostring(enabled))
+      -- Subscribe or unsubscribe based on new enabled state
+      if enabled then
+        subscribeToMeasurement(selectedMeasurement)
+      else
+        unsubscribeFromMeasurement(selectedMeasurement)
+      end
     end
   end
 end
@@ -610,6 +1051,9 @@ function OPC.Remove_Variable(propertyValue)
 
   saveMeasurements()
   log:info("Removed variable '%s' from measurement '%s'", varId, selectedMeasurement)
+
+  -- Refresh subscriptions: unsubscribe from this variable if no longer needed
+  refreshMeasurementSubscriptions(selectedMeasurement)
   refreshMeasurementUI()
 end
 
@@ -687,6 +1131,9 @@ function OnDriverLateInit()
   refreshMeasurementList()
   refreshMeasurementUI()
 
+  -- Re-subscribe to all variables from persisted measurement configs
+  resubscribeAll()
+
   -- Fire OnPropertyChanged for all properties to ensure consistent state
   for p, _ in pairs(Properties) do
     local status, err = pcall(OnPropertyChanged, p)
@@ -716,4 +1163,12 @@ function OnDriverDestroyed()
     log:info("Flushing %d remaining points before shutdown", #writeBuffer)
     flushBuffer()
   end
+end
+
+--- Handle removal of a device from the Control4 project.
+--- Cleans up any variable subscriptions and cache entries for the removed device.
+--- @param deviceId number
+function OnDeviceRemoved(deviceId)
+  log:info("OnDeviceRemoved: device %d", deviceId)
+  handleDeviceRemoved(deviceId)
 end
