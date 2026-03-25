@@ -32,6 +32,15 @@ end
 function C4:AllowExecute() end
 function C4:UpdateProperty() end
 function C4:SetPropertyAttribs() end
+function C4:UpdatePropertyList(name, options, current) end
+function C4:RegisterVariableListener(idDevice, idVariable) end
+function C4:UnregisterVariableListener(idDevice, idVariable) end
+function C4:GetDeviceVariables(idDevice)
+  return {}
+end
+function C4:GetDeviceDisplayName(idDevice)
+  return "Test Device " .. tostring(idDevice)
+end
 function C4:GetVersionInfo()
   return { version = "test" }
 end
