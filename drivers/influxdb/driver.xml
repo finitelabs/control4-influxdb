@@ -316,6 +316,10 @@
         <command>FlushBuffer</command>
       </action>
       <action>
+        <name>Force Flush All</name>
+        <command>ForceFlushAll</command>
+      </action>
+      <action>
         <name>Drain Offline Buffer</name>
         <command>DrainOfflineBuffer</command>
       </action>
@@ -325,4 +329,5 @@
       </action>
     </actions>
   </config>
+
 </devicedata>
