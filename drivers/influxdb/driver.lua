@@ -33,6 +33,14 @@ local OfflineBuffer = require("lib.offline_buffer")
 --- @type boolean
 local influxConnected = false
 
+--- The currently selected measurement name (nil if no measurement is selected).
+--- @type string|nil
+local selectedMeasurement = nil
+
+--- Driver initialization flag.
+--- @type boolean
+local gInitialized = false
+
 --- Current InfluxDB connection settings (populated from properties).
 --- @type table
 local config = {
@@ -187,6 +195,136 @@ local function saveMeasurements()
   persist.set("measurements", measurements)
 end
 
+--- Refresh the "Select Measurement" DYNAMIC_LIST property with current measurement names.
+--- Follows the Home Connect pattern: show the list when options exist, hide when empty.
+local function refreshMeasurementList()
+  -- Build sorted list of measurement names
+  local names = {}
+  for name, _ in pairs(measurements) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+
+  -- If the selected measurement no longer exists, fall back to none
+  if selectedMeasurement and not measurements[selectedMeasurement] then
+    selectedMeasurement = nil
+  end
+
+  if #names > 0 then
+    -- Build comma-delimited options list
+    local options = { constants.SELECT_OPTION }
+    for _, name in ipairs(names) do
+      options[#options + 1] = name
+    end
+    C4:UpdatePropertyList(
+      "Select Measurement",
+      table.concat(options, ","),
+      selectedMeasurement or constants.SELECT_OPTION
+    )
+    C4:SetPropertyAttribs("Select Measurement", constants.SHOW_PROPERTY)
+  else
+    C4:SetPropertyAttribs("Select Measurement", constants.HIDE_PROPERTY)
+  end
+
+  -- Reset the selection display
+  UpdateProperty("Select Measurement", selectedMeasurement or constants.SELECT_OPTION, true)
+  log:debug("Refreshed measurement list (%d measurements)", #names)
+end
+
+--- Build a display string for the configured variables of the selected measurement.
+--- @param meas table The measurement config table.
+--- @return string display
+local function buildConfiguredVariablesDisplay(meas)
+  local fieldStrs = {}
+  for _, varId in ipairs(meas.fields or {}) do
+    fieldStrs[#fieldStrs + 1] = tostring(varId)
+  end
+
+  local tagStrs = {}
+  for _, varId in ipairs(meas.tags or {}) do
+    tagStrs[#tagStrs + 1] = tostring(varId)
+  end
+
+  local parts = {}
+  if #fieldStrs > 0 then
+    parts[#parts + 1] = "Fields: " .. table.concat(fieldStrs, ", ")
+  end
+  if #tagStrs > 0 then
+    parts[#parts + 1] = "Tags: " .. table.concat(tagStrs, ", ")
+  end
+
+  if #parts == 0 then
+    return "(none configured)"
+  end
+  return table.concat(parts, " | ")
+end
+
+--- Refresh measurement config properties to reflect the currently selected measurement.
+--- Follows the Home Connect "Configure Camera" pattern: show/hide config properties
+--- based on whether a valid measurement is selected in the context dropdown.
+local function refreshMeasurementUI()
+  --- Properties that are only visible when a measurement is selected.
+  local configProps = {
+    "Select Variable",
+    "Add Variable As",
+    "Configured Variables",
+    "Remove Variable",
+    "Remove Measurement",
+    "Measurement Write Interval",
+    "Measurement Enabled",
+  }
+
+  if not selectedMeasurement or not measurements[selectedMeasurement] then
+    -- Hide all measurement config properties
+    for _, propName in ipairs(configProps) do
+      C4:SetPropertyAttribs(propName, constants.HIDE_PROPERTY)
+    end
+    log:debug("refreshMeasurementUI: no measurement selected, hiding config properties")
+    return
+  end
+
+  -- Show measurement config properties
+  for _, propName in ipairs(configProps) do
+    C4:SetPropertyAttribs(propName, constants.SHOW_PROPERTY)
+  end
+
+  local meas = measurements[selectedMeasurement]
+
+  -- Populate "Configured Variables" read-only display
+  local display = buildConfiguredVariablesDisplay(meas)
+  UpdateProperty("Configured Variables", display)
+
+  -- Populate "Remove Variable" dynamic list with all variable IDs for this measurement
+  local allVars = {}
+  for _, varId in ipairs(meas.fields or {}) do
+    allVars[#allVars + 1] = tostring(varId)
+  end
+  for _, varId in ipairs(meas.tags or {}) do
+    allVars[#allVars + 1] = tostring(varId)
+  end
+
+  if #allVars > 0 then
+    local options = { constants.SELECT_OPTION }
+    for _, varId in ipairs(allVars) do
+      options[#options + 1] = varId
+    end
+    C4:UpdatePropertyList("Remove Variable", table.concat(options, ","), constants.SELECT_OPTION)
+    C4:SetPropertyAttribs("Remove Variable", constants.SHOW_PROPERTY)
+  else
+    C4:SetPropertyAttribs("Remove Variable", constants.HIDE_PROPERTY)
+  end
+
+  -- Set write interval
+  local interval = meas.interval or "Default"
+  UpdateProperty("Measurement Write Interval", interval)
+
+  -- Set enabled state
+  local enabledStr = (meas.enabled == false) and "Off" or "On"
+  UpdateProperty("Measurement Enabled", enabledStr)
+
+  log:debug("refreshMeasurementUI: updated UI for measurement '%s'", selectedMeasurement)
+end
+
 --- Add a new measurement configuration.
 --- @param name string The measurement name.
 local function addMeasurement(name)
@@ -206,15 +344,17 @@ local function addMeasurement(name)
   measurements[name] = {
     fields = {},
     tags = {},
-    interval = config.writeInterval,
+    interval = "Default",
     enabled = true,
   }
 
   saveMeasurements()
   log:info("Added measurement: %s", name)
 
-  -- TODO (DRV-8): Create dynamic properties for this measurement
-  -- TODO (DRV-9): Set up variable subscriptions for this measurement
+  -- Select the new measurement and refresh UI
+  selectedMeasurement = name
+  refreshMeasurementList()
+  refreshMeasurementUI()
 end
 
 --- Remove a measurement configuration.
@@ -226,11 +366,60 @@ local function removeMeasurement(name)
   end
 
   -- TODO (DRV-9): Unsubscribe from variables for this measurement
-  -- TODO (DRV-8): Remove dynamic properties for this measurement
 
   measurements[name] = nil
   saveMeasurements()
   log:info("Removed measurement: %s", name)
+
+  -- Deselect and refresh
+  selectedMeasurement = nil
+  refreshMeasurementList()
+  refreshMeasurementUI()
+end
+
+--- Add a variable to a measurement's fields or tags list.
+--- @param kind string "fields" or "tags"
+local function addVariable(kind)
+  if not selectedMeasurement or not measurements[selectedMeasurement] then
+    log:warning("addVariable: no measurement selected")
+    return
+  end
+
+  local varId = Properties["Select Variable"]
+  if not varId or varId == "" then
+    log:warning("addVariable: no variable selected")
+    return
+  end
+
+  varId = tostring(varId)
+  local meas = measurements[selectedMeasurement]
+
+  -- Check if already in fields or tags
+  for _, existing in ipairs(meas.fields or {}) do
+    if tostring(existing) == varId then
+      log:warning("Variable '%s' already configured as a field for '%s'", varId, selectedMeasurement)
+      return
+    end
+  end
+  for _, existing in ipairs(meas.tags or {}) do
+    if tostring(existing) == varId then
+      log:warning("Variable '%s' already configured as a tag for '%s'", varId, selectedMeasurement)
+      return
+    end
+  end
+
+  meas[kind] = meas[kind] or {}
+  meas[kind][#meas[kind] + 1] = varId
+
+  saveMeasurements()
+  log:info(
+    "Added variable '%s' as %s to measurement '%s'",
+    varId,
+    kind == "fields" and "field" or "tag",
+    selectedMeasurement
+  )
+
+  refreshMeasurementUI()
 end
 
 --- Determine whether an HTTP response code represents a retriable error.
@@ -473,6 +662,143 @@ function OPC.Default_Write_Interval(propertyValue)
   end
 end
 
+--- Handle the "Select Measurement" property change.
+--- Updates visibility of configuration properties based on the selected measurement.
+--- @param propertyValue string
+function OPC.Select_Measurement(propertyValue)
+  log:trace("OPC.Select_Measurement('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  if propertyValue == constants.SELECT_OPTION or not propertyValue or propertyValue == "" then
+    selectedMeasurement = nil
+  else
+    selectedMeasurement = propertyValue
+  end
+  refreshMeasurementUI()
+end
+
+--- Handle the "Measurement Write Interval" property change for the selected measurement.
+--- @param propertyValue string
+function OPC.Measurement_Write_Interval(propertyValue)
+  log:trace("OPC.Measurement_Write_Interval('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  if selectedMeasurement and measurements[selectedMeasurement] then
+    local previous = measurements[selectedMeasurement].interval
+    measurements[selectedMeasurement].interval = propertyValue
+    if previous ~= propertyValue then
+      saveMeasurements()
+      log:info("Updated write interval for '%s': %s -> %s", selectedMeasurement, previous, propertyValue)
+    end
+  end
+end
+
+--- Handle the "Measurement Enabled" property change for the selected measurement.
+--- @param propertyValue string
+function OPC.Measurement_Enabled(propertyValue)
+  log:trace("OPC.Measurement_Enabled('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  if selectedMeasurement and measurements[selectedMeasurement] then
+    local enabled = (propertyValue == "On")
+    local previous = measurements[selectedMeasurement].enabled
+    measurements[selectedMeasurement].enabled = enabled
+    if previous ~= enabled then
+      saveMeasurements()
+      log:info("Updated enabled state for '%s': %s -> %s", selectedMeasurement, tostring(previous), tostring(enabled))
+    end
+  end
+end
+
+--- Handle the "Add Variable As" property change.
+--- When the user selects "Field" or "Tag", adds the currently selected variable
+--- to the active measurement and resets the dropdown to "(Select)".
+--- @param propertyValue string
+function OPC.Add_Variable_As(propertyValue)
+  log:trace("OPC.Add_Variable_As('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  if propertyValue == constants.SELECT_OPTION or not propertyValue or propertyValue == "" then
+    return
+  end
+
+  if propertyValue == "Field" then
+    addVariable("fields")
+  elseif propertyValue == "Tag" then
+    addVariable("tags")
+  end
+
+  -- Reset the dropdown back to "(Select)"
+  UpdateProperty("Add Variable As", constants.SELECT_OPTION, true)
+end
+
+--- Handle the "Remove Variable" property change.
+--- When the user selects a variable from the list, removes it from the active measurement.
+--- @param propertyValue string
+function OPC.Remove_Variable(propertyValue)
+  log:trace("OPC.Remove_Variable('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  if propertyValue == constants.SELECT_OPTION or not propertyValue or propertyValue == "" then
+    return
+  end
+
+  if not selectedMeasurement or not measurements[selectedMeasurement] then
+    log:warning("Remove_Variable: no measurement selected")
+    return
+  end
+
+  local varId = tostring(propertyValue)
+  local meas = measurements[selectedMeasurement]
+
+  -- Remove from fields
+  local newFields = {}
+  for _, existing in ipairs(meas.fields or {}) do
+    if tostring(existing) ~= varId then
+      newFields[#newFields + 1] = existing
+    end
+  end
+  meas.fields = newFields
+
+  -- Remove from tags
+  local newTags = {}
+  for _, existing in ipairs(meas.tags or {}) do
+    if tostring(existing) ~= varId then
+      newTags[#newTags + 1] = existing
+    end
+  end
+  meas.tags = newTags
+
+  saveMeasurements()
+  log:info("Removed variable '%s' from measurement '%s'", varId, selectedMeasurement)
+  refreshMeasurementUI()
+end
+
+--- Handle the "Remove Measurement" property change.
+--- When the user selects "Remove", deletes the currently selected measurement.
+--- @param propertyValue string
+function OPC.Remove_Measurement(propertyValue)
+  log:trace("OPC.Remove_Measurement('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  if propertyValue == constants.SELECT_OPTION or not propertyValue or propertyValue == "" then
+    return
+  end
+
+  if propertyValue == "Remove" and selectedMeasurement then
+    removeMeasurement(selectedMeasurement)
+  end
+
+  -- Reset the dropdown back to "(Select)"
+  UpdateProperty("Remove Measurement", constants.SELECT_OPTION, true)
+end
+
 ---------------------------------------------------------------------------
 -- Action Handlers (via ExecuteCommand / EC table)
 ---------------------------------------------------------------------------
@@ -559,6 +885,10 @@ function OnDriverLateInit()
   -- Load saved measurement configurations
   loadMeasurements()
 
+  -- Refresh measurement list and hide per-measurement config properties until one is selected
+  refreshMeasurementList()
+  refreshMeasurementUI()
+
   -- Fire OnPropertyChanged for all properties to ensure consistent state
   for p, _ in pairs(Properties) do
     local status, err = pcall(OnPropertyChanged, p)
@@ -570,6 +900,7 @@ function OnDriverLateInit()
   -- Start with disconnected status until explicitly tested
   updateConnectionStatus(false, "Not tested")
 
+  gInitialized = true
   log:info("InfluxDB Data Logger initialized")
 end
 
