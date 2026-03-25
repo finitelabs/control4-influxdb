@@ -163,7 +163,8 @@ function C4:UUID(prefix)
 end
 
 -- Persistence stubs (in-memory storage for testing)
-local persist_store = {}
+-- Global so tests can reset it between runs.
+persist_store = {}
 
 function PersistGetValue(key, encrypted)
   return persist_store[key]
@@ -386,6 +387,18 @@ else
   -- Stub timer that does nothing (sufficient for module loading)
   function C4:SetTimer(delay_ms, callback, repeating)
     return { Cancel = function() end }
+  end
+
+  function C4:KillTimer(handle)
+    if type(handle) == "table" and handle.Cancel then
+      handle:Cancel()
+    end
+  end
+
+  function C4:KillTimer(handle)
+    if type(handle) == "table" and handle.Cancel then
+      handle:Cancel()
+    end
   end
 
   function C4:ProcessTimers() end

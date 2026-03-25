@@ -49,6 +49,11 @@
       <name>Buffer Full</name>
       <description>When NAME write buffer is full</description>
     </event>
+    <event>
+      <id>5</id>
+      <name>Extended Outage</name>
+      <description>When NAME has been disconnected longer than the outage notification threshold</description>
+    </event>
   </events>
   <config>
     <script file="driver.lua" jit="1"/>
@@ -177,6 +182,44 @@
         </items>
       </property>
       <property>
+        <name>Offline Buffer Settings</name>
+        <type>LABEL</type>
+        <default>Offline Buffer &amp; Retry</default>
+      </property>
+      <property>
+        <name>Max Buffer Size</name>
+        <type>STRING</type>
+        <default>10000</default>
+        <description>Maximum number of points to buffer when offline (default: 10000)</description>
+      </property>
+      <property>
+        <name>Outage Notification Threshold</name>
+        <type>LIST</type>
+        <default>5m</default>
+        <items>
+          <item>1m</item>
+          <item>5m</item>
+          <item>15m</item>
+          <item>30m</item>
+          <item>1h</item>
+        </items>
+        <description>Fire Extended Outage event after this duration offline</description>
+      </property>
+      <property>
+        <name>Offline Buffer Size</name>
+        <type>STRING</type>
+        <default/>
+        <readonly>true</readonly>
+        <description>Current number of points in the offline buffer</description>
+      </property>
+      <property>
+        <name>Connection State</name>
+        <type>STRING</type>
+        <default>Disconnected</default>
+        <readonly>true</readonly>
+        <description>Current connection state (Connected/Disconnected/Reconnecting)</description>
+      </property>
+      <property>
         <name>Measurements</name>
         <type>LABEL</type>
         <default>Measurement Configuration</default>
@@ -206,6 +249,14 @@
       <action>
         <name>Flush Buffer</name>
         <command>FlushBuffer</command>
+      </action>
+      <action>
+        <name>Drain Offline Buffer</name>
+        <command>DrainOfflineBuffer</command>
+      </action>
+      <action>
+        <name>Clear Offline Buffer</name>
+        <command>ClearOfflineBuffer</command>
       </action>
     </actions>
   </config>
