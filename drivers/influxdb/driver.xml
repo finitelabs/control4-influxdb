@@ -272,7 +272,6 @@
         <name>Flush Buffer</name>
         <command>FlushBuffer</command>
       </action>
-
     </actions>
   </config>
 </devicedata>
