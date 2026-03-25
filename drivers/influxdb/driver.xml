@@ -225,53 +225,38 @@
         <default>Measurement Configuration</default>
       </property>
       <property>
-        <name>Measurement Name</name>
+        <name>Add Measurement</name>
         <type>STRING</type>
         <default/>
-        <description>Enter a name and click Add Measurement</description>
+        <description>Enter a measurement name and press Set to create it</description>
       </property>
       <property>
-        <name>Select Measurement</name>
+        <name>Remove Measurement</name>
         <type>DYNAMIC_LIST</type>
-        <tooltip>Select a measurement to configure</tooltip>
       </property>
       <property>
-        <name>Select Variable</name>
+        <name>Configure Measurement</name>
+        <type>DYNAMIC_LIST</type>
+      </property>
+      <property>
+        <name>Add Field</name>
         <type>VARIABLE_SELECTOR</type>
         <default></default>
         <variabletype>all</variabletype>
       </property>
       <property>
-        <name>Add Variable As</name>
-        <type>LIST</type>
-        <default>(Select)</default>
-        <items>
-          <item>(Select)</item>
-          <item>Field</item>
-          <item>Tag</item>
-        </items>
-        <tooltip>Add the selected variable as a field or tag</tooltip>
-      </property>
-      <property>
-        <name>Configured Variables</name>
-        <type>STRING</type>
-        <default></default>
-        <readonly>true</readonly>
-      </property>
-      <property>
-        <name>Remove Variable</name>
+        <name>Remove Field</name>
         <type>DYNAMIC_LIST</type>
-        <tooltip>Select a variable to remove from this measurement</tooltip>
       </property>
       <property>
-        <name>Remove Measurement</name>
-        <type>LIST</type>
-        <default>(Select)</default>
-        <items>
-          <item>(Select)</item>
-          <item>Remove</item>
-        </items>
-        <tooltip>Remove the currently selected measurement</tooltip>
+        <name>Add Tag</name>
+        <type>VARIABLE_SELECTOR</type>
+        <default></default>
+        <variabletype>all</variabletype>
+      </property>
+      <property>
+        <name>Remove Tag</name>
+        <type>DYNAMIC_LIST</type>
       </property>
       <property>
         <name>Measurement Write Interval</name>
@@ -303,26 +288,6 @@
         <command>UpdateDrivers</command>
       </action>
       <!-- #endif -->
-      <action>
-        <name>Test Connection</name>
-        <command>TestConnection</command>
-      </action>
-      <action>
-        <name>Add Measurement</name>
-        <command>AddMeasurement</command>
-      </action>
-      <action>
-        <name>Flush Buffer</name>
-        <command>FlushBuffer</command>
-      </action>
-      <action>
-        <name>Force Flush All</name>
-        <command>ForceFlushAll</command>
-      </action>
-      <action>
-        <name>Drain Offline Buffer</name>
-        <command>DrainOfflineBuffer</command>
-      </action>
       <action>
         <name>Clear Offline Buffer</name>
         <command>ClearOfflineBuffer</command>
