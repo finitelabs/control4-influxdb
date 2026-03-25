@@ -104,4 +104,38 @@ return {
     ["ms"] = "ms",
     ["s"] = "s",
   },
+
+  --- Predefined variable sets for common device types.
+  --- Each entry defines a measurement template with expected field/tag variable name patterns.
+  --- @type table<string, table>
+  PREDEFINED_SETS = {
+    Thermostat = {
+      measurement = "thermostat",
+      description = "Temperature, humidity, setpoint, HVAC mode",
+      fields = { "TEMPERATURE", "OUTDOOR_TEMPERATURE", "HUMIDITY", "HEAT_SETPOINT", "COOL_SETPOINT" },
+      tags = { "HVAC_MODE", "FAN_MODE", "HVAC_STATE", "SCALE" },
+      interval = "1m",
+    },
+    Security = {
+      measurement = "security",
+      description = "Partition state, arm/disarm status",
+      fields = { "PARTITION_STATE", "ALARM_TYPE", "DELAY_TIME_REMAINING" },
+      tags = { "ARMED_STATE", "ALARM_STATE" },
+      interval = "30s",
+    },
+    ["Door Lock"] = {
+      measurement = "door_lock",
+      description = "Lock state and battery level",
+      fields = { "BATTERY_LEVEL" },
+      tags = { "LockStatus" },
+      interval = "1m",
+    },
+    Lighting = {
+      measurement = "lighting",
+      description = "Light levels and power state",
+      fields = { "LIGHT_LEVEL" },
+      tags = { "LIGHT_STATE" },
+      interval = "5m",
+    },
+  },
 }

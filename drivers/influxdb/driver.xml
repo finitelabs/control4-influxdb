@@ -231,6 +231,19 @@
         <description>Enter a name and click Add Measurement</description>
       </property>
       <property>
+        <name>Add Predefined Set</name>
+        <type>LIST</type>
+        <default>(Select)</default>
+        <items>
+          <item>(Select)</item>
+          <item>Thermostat</item>
+          <item>Security</item>
+          <item>Door Lock</item>
+          <item>Lighting</item>
+        </items>
+        <description>Auto-discover devices and create measurements with sensible defaults</description>
+      </property>
+      <property>
         <name>Select Measurement</name>
         <type>DYNAMIC_LIST</type>
         <tooltip>Select a measurement to configure</tooltip>

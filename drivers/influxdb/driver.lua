@@ -1415,6 +1415,185 @@ function OPC.Default_Write_Interval(propertyValue)
   end
 end
 
+---------------------------------------------------------------------------
+-- Predefined Set Discovery
+---------------------------------------------------------------------------
+
+--- Proxy type strings that map to each predefined set category.
+local PROXY_TYPES_FOR_SET = {
+  Thermostat = { "thermostatV2", "thermostat" },
+  Security = { "security" },
+  ["Door Lock"] = { "lock" },
+  Lighting = { "light" },
+}
+
+--- Sanitize a string for use as part of a measurement name.
+--- Lowercases and replaces spaces/commas with underscores.
+--- @param s string
+--- @return string
+local function sanitizeName(s)
+  return (s:lower():gsub("[%s,]+", "_"))
+end
+
+--- Discover devices matching a predefined set category and find their relevant variables.
+--- @param setName string  Key into constants.PREDEFINED_SETS (e.g. "Thermostat")
+--- @return table[]  Array of { deviceId, name, fields = { "devId:varId", ... }, tags = { "devId:varId", ... } }
+local function discoverDevicesForSet(setName)
+  local setDef = constants.PREDEFINED_SETS and constants.PREDEFINED_SETS[setName]
+  if not setDef then
+    log:warn("discoverDevicesForSet: unknown set '%s'", setName)
+    return {}
+  end
+
+  local proxyTypes = PROXY_TYPES_FOR_SET[setName] or {}
+  local results = {}
+
+  -- Build a lookup set for proxy types
+  local proxySet = {}
+  for _, pt in ipairs(proxyTypes) do
+    proxySet[pt:lower()] = true
+  end
+
+  -- Iterate all devices in the project
+  local ok, allDevices = pcall(C4.GetItemsByType, C4, "devices")
+  if not ok or not allDevices then
+    log:warn("discoverDevicesForSet: C4:GetItemsByType failed")
+    return {}
+  end
+
+  for deviceId, _ in pairs(allDevices) do
+    local devId = tonumber(deviceId) or deviceId
+
+    -- Get device info to check proxy type
+    local infoOk, info = pcall(C4.GetItemInfo, C4, devId)
+    if infoOk and info then
+      local proxy = (info.proxy or info.proxies or ""):lower()
+
+      -- Check if this device's proxy matches the category
+      local matched = false
+      for pt, _ in pairs(proxySet) do
+        if proxy:find(pt, 1, true) then
+          matched = true
+          break
+        end
+      end
+
+      if matched then
+        -- Get variables for this device
+        local varOk, vars = pcall(C4.GetDeviceVariables, C4, devId)
+        if varOk and vars then
+          local deviceEntry = {
+            deviceId = devId,
+            name = info.name or info.display_name or string.format("device%d", devId),
+            fields = {},
+            tags = {},
+          }
+
+          -- Match variables against field/tag patterns (case-insensitive substring)
+          for varIdStr, varInfo in pairs(vars) do
+            local varName = (varInfo.name or ""):upper()
+
+            -- Check fields
+            for _, pattern in ipairs(setDef.fields or {}) do
+              if varName:find(pattern:upper(), 1, true) then
+                deviceEntry.fields[#deviceEntry.fields + 1] = string.format("%d:%s", devId, varIdStr)
+                break
+              end
+            end
+
+            -- Check tags
+            for _, pattern in ipairs(setDef.tags or {}) do
+              if varName:find(pattern:upper(), 1, true) then
+                deviceEntry.tags[#deviceEntry.tags + 1] = string.format("%d:%s", devId, varIdStr)
+                break
+              end
+            end
+          end
+
+          -- Only include devices that matched at least one variable
+          if #deviceEntry.fields > 0 or #deviceEntry.tags > 0 then
+            results[#results + 1] = deviceEntry
+          end
+        end
+      end
+    end
+  end
+
+  return results
+end
+
+--- Handle the "Add Predefined Set" property change.
+--- Discovers matching devices and creates measurements with sensible defaults.
+--- @param propertyValue string
+function OPC.Add_Predefined_Set(propertyValue)
+  log:trace("OPC.Add_Predefined_Set('%s')", propertyValue)
+  if not gInitialized then
+    return
+  end
+  if propertyValue == constants.SELECT_OPTION or not propertyValue or propertyValue == "" then
+    return
+  end
+
+  local setDef = constants.PREDEFINED_SETS and constants.PREDEFINED_SETS[propertyValue]
+  if not setDef then
+    log:warn("Add_Predefined_Set: unknown set '%s'", propertyValue)
+    UpdateProperty("Add Predefined Set", constants.SELECT_OPTION, true)
+    return
+  end
+
+  log:info("Add_Predefined_Set: discovering %s devices...", propertyValue)
+  local discovered = discoverDevicesForSet(propertyValue)
+
+  if #discovered == 0 then
+    log:warn("No %s devices found in system", propertyValue)
+    UpdateProperty("Add Predefined Set", constants.SELECT_OPTION, true)
+    return
+  end
+
+  local created = 0
+  for _, device in ipairs(discovered) do
+    local measName = setDef.measurement .. "_" .. sanitizeName(device.name)
+
+    -- addMeasurement handles sanitization, duplicate checks, and UI refresh
+    addMeasurement(measName)
+
+    local meas = measurements[measName]
+    if meas then
+      -- Populate fields and tags
+      for _, varIdStr in ipairs(device.fields) do
+        meas.fields[#meas.fields + 1] = varIdStr
+      end
+      for _, varIdStr in ipairs(device.tags) do
+        meas.tags[#meas.tags + 1] = varIdStr
+      end
+
+      -- Set the interval from the predefined set
+      meas.interval = setDef.interval or "Default"
+      meas.enabled = true
+
+      saveMeasurements()
+      subscribeToMeasurement(measName)
+
+      log:info(
+        "Created measurement '%s' for %s device '%s' (%d fields, %d tags)",
+        measName,
+        propertyValue,
+        device.name,
+        #device.fields,
+        #device.tags
+      )
+      created = created + 1
+    end
+  end
+
+  log:info("Add_Predefined_Set: created %d measurement(s) for %s", created, propertyValue)
+  refreshMeasurementList()
+  refreshMeasurementUI()
+
+  -- Reset the dropdown back to "(Select)"
+  UpdateProperty("Add Predefined Set", constants.SELECT_OPTION, true)
+end
+
 --- Handle the "Select Measurement" property change.
 --- Updates visibility of configuration properties based on the selected measurement.
 --- @param propertyValue string
