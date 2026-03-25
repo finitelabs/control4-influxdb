@@ -9,6 +9,14 @@ return {
   --- @type number
   HIDE_PROPERTY = 1,
 
+  --- Placeholder for dynamic list properties when nothing is selected.
+  --- @type string
+  SELECT_OPTION = "(Select)",
+
+  --- Placeholder for "none" in dynamic lists.
+  --- @type string
+  NONE_OPTION = "None",
+
   --- Log level constants.
   --- @type table<string, string>
   LOG_LEVELS = {
