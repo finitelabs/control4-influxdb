@@ -126,11 +126,10 @@ is an outline of the basic steps for your convenience.
    in the "System Design" tab and perform the "Check Drivers" action.
    <br><img alt="Check Drivers" src="./images/check-drivers.png" width="300"/>
 6. Configure the [InfluxDB Settings](#influxdb-settings) with the connection
-   information for your InfluxDB instance.
-7. Use the **Test Connection** action to verify connectivity. The
-   [`Driver Status`](#driver-status-read-only) will display `Connected` on
-   success.
-8. Create measurements using the
+   information for your InfluxDB instance. The
+   [`Driver Status`](#driver-status-read-only) will display `Connected`
+   automatically once the URL, API Token, and Database are set.
+7. Create measurements using the
    [Measurement Configuration](#measurement-configuration) properties and bind
    Control4 variables to them.
 
@@ -147,11 +146,10 @@ is an outline of the basic steps for your convenience.
    ![Search Drivers](images/search-drivers.png)
 
 4. Configure the [InfluxDB Settings](#influxdb-settings) with the connection
-   information for your InfluxDB instance.
-5. Use the **Test Connection** action to verify connectivity. The
-   [`Driver Status`](#driver-status-read-only) will display `Connected` on
-   success.
-6. Create measurements using the
+   information for your InfluxDB instance. The
+   [`Driver Status`](#driver-status-read-only) will display `Connected`
+   automatically once the URL, API Token, and Database are set.
+5. Create measurements using the
    [Measurement Configuration](#measurement-configuration) properties and bind
    Control4 variables to them.
 
