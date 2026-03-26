@@ -16,7 +16,8 @@
 
 ### Changed
 
-- Use consistent property sync pattern (`SetDeviceProperties`) across driver instances
+- Use consistent property sync pattern (`SetDeviceProperties`) across driver
+  instances
 
 ## v20260325 - 2026-03-25
 
