@@ -54,4 +54,4 @@ jobs:
           files: |
             dist/oss/*.c4z
             dist/oss/*.pdf
-            dist/oss/control4-influxdb.zip
+            dist/oss/*.zip

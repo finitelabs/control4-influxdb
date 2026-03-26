@@ -86,14 +86,8 @@ local function syncPropertyToOtherInstances(propertyName, propertyValue)
   local myId = C4:GetDeviceID()
   for _, deviceId in ipairs(ids) do
     if deviceId ~= myId then
-      local props = GetDeviceProperties(deviceId)
-      if Select(props, propertyName) ~= propertyValue then
-        C4:SendUIRequest(
-          C4:GetProxyDevices(deviceId) or deviceId,
-          "PROPERTY",
-          { Name = propertyName, Value = propertyValue }
-        )
-      end
+      log:info("Syncing property '%s' = '%s' to device %d", propertyName, propertyValue, deviceId)
+      SetDeviceProperties(deviceId, { [propertyName] = propertyValue }, true)
     end
   end
 end
