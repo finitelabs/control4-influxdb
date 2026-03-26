@@ -34,12 +34,6 @@ local InfluxClient = require("lib.influx_client")
 --- @type boolean
 local gInitialized = false
 
---#ifndef DRIVERCENTRAL
---- Whether this instance is the leader (lowest device ID) for update checks.
---- @type boolean
-local isLeaderInstance = false
---#endif
-
 --- InfluxDB connection client.
 --- @type InfluxClient
 local influxClient = InfluxClient:new()
@@ -186,7 +180,7 @@ end
 function OPC.Automatic_Updates(propertyValue)
   log:trace("OPC.Automatic_Updates('%s')", propertyValue)
   --#ifndef DRIVERCENTRAL
-  if not gInitialized and not isLeaderInstance then
+  if not gInitialized then
     return
   end
   syncPropertyToOtherInstances("Automatic Updates", propertyValue)
@@ -197,7 +191,7 @@ end
 --- @param propertyValue string
 function OPC.Update_Channel(propertyValue)
   log:trace("OPC.Update_Channel('%s')", propertyValue)
-  if not gInitialized and not isLeaderInstance then
+  if not gInitialized then
     return
   end
   syncPropertyToOtherInstances("Update Channel", propertyValue)
@@ -464,10 +458,6 @@ function OnDriverLateInit()
   -- Set driver version
   UpdateProperty("Driver Version", C4:GetDeviceData(C4:GetDeviceID(), "version"))
 
-  --#ifndef DRIVERCENTRAL
-  isLeaderInstance = Select(getDriverIds(), 1) == C4:GetDeviceID()
-  --#endif
-
   log:info("InfluxDB Data Logger initializing")
 
   -- Load config from properties
@@ -541,7 +531,7 @@ function OnDriverLateInit()
   -- Periodic update check (every 30 minutes, leader instance only)
   SetTimer("UpdateCheck", 30 * 60 * 1000, function()
     -- Recompute leader each cycle in case the previous leader was removed
-    isLeaderInstance = Select(getDriverIds(), 1) == C4:GetDeviceID()
+    local isLeaderInstance = Select(getDriverIds(), 1) == C4:GetDeviceID()
     if isLeaderInstance and toboolean(Properties["Automatic Updates"]) then
       log:info("Checking for driver update (leader instance)")
       UpdateDrivers()
