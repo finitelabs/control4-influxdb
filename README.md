@@ -261,6 +261,13 @@ can file an issue on GitHub:
 
 # <span style="color:#109EFF">Changelog</span>
 
+## Unreleased
+
+### Changed
+
+- Use consistent property sync pattern (`SetDeviceProperties`) across driver
+  instances
+
 ## v20260325 - 2026-03-25
 
 ### Added
