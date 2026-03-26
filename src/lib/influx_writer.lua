@@ -130,7 +130,7 @@ function InfluxWriter.buildLine(measurement, tags, fields, timestampMs)
     if formatted then
       fieldParts[#fieldParts + 1] = escapeTagOrKey(fieldKey) .. "=" .. formatted
     else
-      log:warning("buildLine: skipping field '%s': %s", fieldKey, err or "unknown error")
+      log:warn("buildLine: skipping field '%s': %s", fieldKey, err or "unknown error")
     end
   end
 
@@ -225,7 +225,7 @@ function InfluxWriter.postBatch(url, token, lines)
           retryAfter = tonumber(ra)
         end
       end
-      log:warning("InfluxWriter: rate limited (HTTP 429), retry-after=%s", tostring(retryAfter))
+      log:warn("InfluxWriter: rate limited (HTTP 429), retry-after=%s", tostring(retryAfter))
       d:reject({ retriable = true, retryAfter = retryAfter, errMsg = "rate limited (HTTP 429)" })
     elseif responseCode >= 500 then
       log:error("InfluxWriter: server error (HTTP %d): %s", responseCode, strData or "")
@@ -296,7 +296,7 @@ function InfluxWriter:_getMeasurementState(measurementName, intervalSecs, maxBuf
   if not self._measurements[measurementName] then
     self._measurements[measurementName] = {
       buffer = {},
-      timerId = nil,
+      timerName = nil,
       lastValues = {}, -- field key -> last flushed value (for dedup)
       lastFlushTime = 0,
       intervalSecs = intervalSecs or constants.DEFAULT_WRITE_INTERVAL,
@@ -331,12 +331,17 @@ function InfluxWriter:enqueue(measurementName, tags, fields, opts, timestampMs)
   -- Build the line first (so we can check dedup before buffering)
   local line, err = InfluxWriter.buildLine(measurementName, tags, fields, timestampMs)
   if not line then
-    log:warning("InfluxWriter.enqueue: skipping point for '%s': %s", measurementName, err or "")
+    log:warn("InfluxWriter.enqueue: skipping point for '%s': %s", measurementName, err or "")
     return
   end
 
   -- Dedup check: skip if all field values unchanged since last flush
-  if state.dedupEnabled then
+  -- Per-call opts.dedup can override the measurement's default dedup setting
+  local dedupActive = state.dedupEnabled
+  if opts.dedup ~= nil then
+    dedupActive = opts.dedup
+  end
+  if dedupActive then
     local changed = false
     for fieldKey, fieldDef in pairs(fields) do
       local lastVal = state.lastValues[fieldKey]
@@ -356,7 +361,7 @@ function InfluxWriter:enqueue(measurementName, tags, fields, opts, timestampMs)
     table.remove(state.buffer, 1)
     self._metrics.pointsDropped = self._metrics.pointsDropped + 1
     self._metrics.pointsBuffered = math.max(0, self._metrics.pointsBuffered - 1)
-    log:warning("InfluxWriter: buffer full for '%s', evicting oldest point", measurementName)
+    log:warn("InfluxWriter: buffer full for '%s', evicting oldest point", measurementName)
     if self._onBufferFull then
       pcall(self._onBufferFull)
     end
@@ -381,15 +386,17 @@ end
 --- @param measurementName string
 --- @param state table
 function InfluxWriter:_armFlushTimer(measurementName, state)
-  if state.timerId then
+  local timerName = "InfluxWriter_" .. measurementName
+  if state.timerName then
     return -- already armed
   end
 
   local intervalMs = (state.intervalSecs or constants.DEFAULT_WRITE_INTERVAL) * 1000
   log:trace("InfluxWriter: arming flush timer for '%s' (%ds)", measurementName, state.intervalSecs)
 
-  state.timerId = C4:AddTimer(intervalMs, "MILLISECONDS", false, function()
-    state.timerId = nil
+  state.timerName = timerName
+  SetTimer(timerName, intervalMs, function()
+    state.timerName = nil
     self:_flushMeasurement(measurementName)
   end)
 end
@@ -406,7 +413,7 @@ function InfluxWriter:_flushMeasurement(measurementName, force)
   -- Build URL from current config
   local cfg = self._getConfig()
   if not cfg or not cfg.url or cfg.url == "" or not cfg.database or cfg.database == "" then
-    log:warning("InfluxWriter: cannot flush '%s' — InfluxDB not configured", measurementName)
+    log:warn("InfluxWriter: cannot flush '%s' — InfluxDB not configured", measurementName)
     -- Re-arm so we retry later
     self:_armFlushTimer(measurementName, state)
     return
@@ -414,7 +421,7 @@ function InfluxWriter:_flushMeasurement(measurementName, force)
 
   local base = cfg.url:gsub("/$", "")
   local url = string.format(
-    "%s/api/v2/write?db=%s&precision=%s",
+    "%s/api/v2/write?bucket=%s&precision=%s",
     base,
     cfg.database,
     cfg.precision or constants.DEFAULT_PRECISION
@@ -477,8 +484,10 @@ function InfluxWriter:_flushMeasurement(measurementName, force)
         -- Schedule retry
         local delaySecs = err.retryAfter or constants.RETRY_INTERVALS[1]
         log:info("InfluxWriter: scheduling retry for '%s' in %ds", measurementName, delaySecs)
-        state.timerId = C4:AddTimer(delaySecs * 1000, "MILLISECONDS", false, function()
-          state.timerId = nil
+        local timerName = "InfluxWriter_" .. measurementName
+        state.timerName = timerName
+        SetTimer(timerName, delaySecs * 1000, function()
+          state.timerName = nil
           self:_flushMeasurement(measurementName)
         end)
       else
@@ -509,9 +518,9 @@ function InfluxWriter:forceFlushAll()
   log:info("InfluxWriter: force-flushing all measurements")
   for name, state in pairs(self._measurements) do
     -- Cancel existing timer so we don't double-flush
-    if state.timerId then
-      C4:KillTimer(state.timerId)
-      state.timerId = nil
+    if state.timerName then
+      CancelTimer(state.timerName)
+      state.timerName = nil
     end
     if #state.buffer > 0 then
       self:_flushMeasurement(name, true)
@@ -527,9 +536,9 @@ function InfluxWriter:forceFlush(measurementName)
     return
   end
 
-  if state.timerId then
-    C4:KillTimer(state.timerId)
-    state.timerId = nil
+  if state.timerName then
+    CancelTimer(state.timerName)
+    state.timerName = nil
   end
   self:_flushMeasurement(measurementName, true)
 end
@@ -540,9 +549,9 @@ function InfluxWriter:shutdown()
   log:info("InfluxWriter: shutting down, flushing all buffers")
 
   for name, state in pairs(self._measurements) do
-    if state.timerId then
-      C4:KillTimer(state.timerId)
-      state.timerId = nil
+    if state.timerName then
+      CancelTimer(state.timerName)
+      state.timerName = nil
     end
   end
 
@@ -558,13 +567,13 @@ function InfluxWriter:removeMeasurement(measurementName)
     return
   end
 
-  if state.timerId then
-    C4:KillTimer(state.timerId)
+  if state.timerName then
+    CancelTimer(state.timerName)
   end
 
   local discarded = #state.buffer
   if discarded > 0 then
-    log:warning("InfluxWriter: discarding %d buffered points for removed measurement '%s'", discarded, measurementName)
+    log:warn("InfluxWriter: discarding %d buffered points for removed measurement '%s'", discarded, measurementName)
     self._metrics.pointsBuffered = math.max(0, self._metrics.pointsBuffered - discarded)
     self._metrics.pointsDropped = self._metrics.pointsDropped + discarded
     self:_updateMetricVariables()

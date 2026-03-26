@@ -37,9 +37,9 @@ synced with `copier update`.
 
 - `JSON.lua` — JSON encoder/decoder
 - `deferred.lua` — promises/deferred implementation
-- `cloud-client-byte.lua` — DriverCentral cloud licensing
 - `version.lua` — semver comparison (used by github-updater)
 - `drivers-common-public/` — Control4's official shared libraries
+- `xml/` — XML parser (xml2lua)
 
 **Tools (`tools/`):**
 
@@ -114,7 +114,7 @@ make clean-all     # Remove everything (build artifacts, deps, venv)
 
 ### Distributions
 
-Builds are configured for these distributions: `drivercentral oss`
+Builds are configured for these distributions: `oss`
 
 Each distribution produces its own set of .c4z driver files with
 distribution-specific code paths controlled by `#ifdef` directives (e.g.,
