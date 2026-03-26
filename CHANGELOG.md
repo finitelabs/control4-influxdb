@@ -14,10 +14,9 @@
 
 ## Unreleased
 
-### Fixed
+### Changed
 
-- Fixed automatic driver updates not working when the leader instance is removed
-  from the project
+- Use consistent property sync pattern (`SetDeviceProperties`) across driver instances
 
 ## v20260325 - 2026-03-25
 
