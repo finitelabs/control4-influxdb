@@ -263,10 +263,10 @@ can file an issue on GitHub:
 
 ## Unreleased
 
-### Changed
+### Fixed
 
-- Use consistent property sync pattern (`SetDeviceProperties`) across driver
-  instances
+- Fixed automatic driver updates not working when the leader instance is removed
+  from the project
 
 ## v20260325 - 2026-03-25
 
