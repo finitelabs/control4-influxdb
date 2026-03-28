@@ -1,25 +1,36 @@
---- Measurement CRUD and UI management for the InfluxDB Data Logger.
+--- Measurement schema and reading management for the InfluxDB Data Logger.
 ---
---- Handles creating, removing, and configuring measurements. Manages the
---- Composer Pro property UI for measurement selection and variable binding.
+--- Handles creating, removing, and configuring measurements with schema-based
+--- field/tag definitions and per-device readings. Configuration is managed
+--- through the web UI tab, not Composer Pro properties.
 
 local log = require("lib.logging")
 local persist = require("lib.persist")
-local constants = require("constants")
 
 ---------------------------------------------------------------------------
 -- Module
 ---------------------------------------------------------------------------
 
+--- @class MappingDef
+--- @field varId string|nil "deviceId:variableId" for variable source.
+--- @field source string "variable" | "literal"
+--- @field transform string|nil Lua expression, e.g. "value * 100".
+--- @field literal string|nil Fixed value when source=="literal".
+
+--- @class ReadingDef
+--- @field enabled boolean
+--- @field mappings table<string, MappingDef> fieldName/tagName -> mapping.
+
 --- @class MeasurementConfig
---- @field fields string[] Variable IDs for field values.
---- @field tags string[] Variable IDs for tag values.
---- @field interval string Write interval display string (e.g., "Default", "10s").
+--- @field fieldDefs string[] Ordered field names, e.g. {"level", "voltage"}.
+--- @field tagDefs string[] Ordered tag names, e.g. {"device_name"}.
+--- @field readings table<string, ReadingDef> label -> reading definition.
+--- @field interval string Write interval display string.
 --- @field enabled boolean Whether this measurement is actively collecting.
+--- @field dedup boolean Whether to skip writes when field values are unchanged (default true).
 
 --- @class MeasurementManager
 --- @field _measurements table<string, MeasurementConfig>
---- @field _selectedMeasurement string|nil
 local MeasurementManager = {}
 MeasurementManager.__index = MeasurementManager
 
@@ -30,12 +41,17 @@ function MeasurementManager:new()
   log:trace("MeasurementManager:new()")
   local instance = setmetatable({}, self)
   instance._measurements = {}
-  instance._selectedMeasurement = nil
 
-  -- Load from persistent storage
   local data = persist:get("measurements")
   if data and type(data) == "table" then
-    instance._measurements = data
+    -- Only load new-format configs (have fieldDefs)
+    for name, meas in pairs(data) do
+      if meas.fieldDefs then
+        instance._measurements[name] = meas
+      else
+        log:info("Discarding old-format measurement '%s'", name)
+      end
+    end
     local count = 0
     for _ in pairs(instance._measurements) do
       count = count + 1
@@ -65,25 +81,6 @@ function MeasurementManager:get(name)
   return self._measurements[name]
 end
 
---- Return the currently selected measurement name.
---- @return string|nil
-function MeasurementManager:getSelected()
-  log:trace("MeasurementManager:getSelected()")
-  return self._selectedMeasurement
-end
-
---- Set the currently selected measurement and refresh the UI.
---- @param name string|nil
-function MeasurementManager:setSelected(name)
-  log:trace("MeasurementManager:setSelected('%s')", tostring(name))
-  if name == constants.SELECT_OPTION or not name or name == "" then
-    self._selectedMeasurement = nil
-  else
-    self._selectedMeasurement = name
-  end
-  self:refreshUI()
-end
-
 ---------------------------------------------------------------------------
 -- Persistence
 ---------------------------------------------------------------------------
@@ -95,10 +92,10 @@ function MeasurementManager:_save()
 end
 
 ---------------------------------------------------------------------------
--- CRUD Operations
+-- Measurement CRUD
 ---------------------------------------------------------------------------
 
---- Add a new measurement configuration.
+--- Add a new measurement.
 --- @param name string The measurement name.
 --- @return boolean success
 function MeasurementManager:add(name)
@@ -117,26 +114,22 @@ function MeasurementManager:add(name)
   end
 
   self._measurements[name] = {
-    fields = {},
-    tags = {},
+    fieldDefs = {},
+    tagDefs = {},
+    readings = {},
     interval = "Default",
     enabled = true,
   }
 
   self:_save()
   log:info("Added measurement: %s", name)
-
-  -- Clear the input field and select the new measurement
-  UpdateProperty("Add Measurement", "")
-  self._selectedMeasurement = name
-  self:refreshUI()
   return true
 end
 
---- Remove a measurement configuration.
---- @param name string The measurement name.
---- @param subEngine SubscriptionEngine|nil Subscription engine to unsubscribe variables.
---- @param influxWriter InfluxWriter|nil Writer to remove measurement buffers.
+--- Remove a measurement.
+--- @param name string
+--- @param subEngine SubscriptionEngine|nil
+--- @param influxWriter InfluxWriter|nil
 function MeasurementManager:remove(name, subEngine, influxWriter)
   log:trace("MeasurementManager:remove('%s')", name)
   if not self._measurements[name] then
@@ -144,297 +137,362 @@ function MeasurementManager:remove(name, subEngine, influxWriter)
     return
   end
 
-  -- Unsubscribe from all variables for this measurement before removing it
   if subEngine then
     subEngine:unsubscribeFromMeasurement(name)
   end
 
-  -- Remove from InfluxWriter batch engine (cancels flush timer, drops buffered points)
   if influxWriter then
-    influxWriter:removeMeasurement(name)
+    -- Remove all reading-keyed buffers for this measurement
+    local meas = self._measurements[name]
+    for readingLabel in pairs(meas.readings or {}) do
+      influxWriter:removeMeasurement(name .. "::" .. readingLabel)
+    end
   end
 
   self._measurements[name] = nil
   self:_save()
   log:info("Removed measurement: %s", name)
-
-  -- Deselect if the removed measurement was selected
-  if self._selectedMeasurement == name then
-    self._selectedMeasurement = nil
-  end
-  self:refreshUI()
 end
 
---- Add a variable to the selected measurement's fields or tags list.
---- @param kind string "fields" or "tags"
---- @param varId string The variable ID (e.g. "96:1005").
---- @param subEngine SubscriptionEngine|nil Subscription engine to subscribe the variable.
---- @return boolean success
-function MeasurementManager:addVariable(kind, varId, subEngine)
-  log:trace("MeasurementManager:addVariable('%s', '%s')", kind, tostring(varId))
-  if not self._selectedMeasurement or not self._measurements[self._selectedMeasurement] then
-    log:warn("addVariable: no measurement selected")
-    return false
-  end
-  if IsEmpty(varId) then
-    log:warn("addVariable: no variable selected")
-    return false
-  end
-
-  varId = tostring(varId)
-  local meas = self._measurements[self._selectedMeasurement]
-
-  -- Check if already in fields or tags
-  for _, existing in ipairs(meas.fields or {}) do
-    if tostring(existing) == varId then
-      log:warn("Variable '%s' already configured as a field for '%s'", varId, self._selectedMeasurement)
-      return false
-    end
-  end
-  for _, existing in ipairs(meas.tags or {}) do
-    if tostring(existing) == varId then
-      log:warn("Variable '%s' already configured as a tag for '%s'", varId, self._selectedMeasurement)
-      return false
-    end
-  end
-
-  meas[kind] = meas[kind] or {}
-  meas[kind][#meas[kind] + 1] = varId
-
-  self:_save()
-  log:info(
-    "Added variable '%s' as %s to measurement '%s'",
-    varId,
-    kind == "fields" and "field" or "tag",
-    self._selectedMeasurement
-  )
-
-  -- Subscribe to the new variable immediately
-  if subEngine and meas.enabled ~= false then
-    subEngine:_subscribeToVariable(varId, self._selectedMeasurement, kind)
-  end
-
-  self:refreshUI()
-  return true
-end
-
---- Remove a variable from the selected measurement.
---- @param kind string "fields" or "tags"
---- @param rawValue string The selected value, either a raw ID "96:1005" or label "Name [96:1005]".
---- @param subEngine SubscriptionEngine|nil Subscription engine to refresh subscriptions.
-function MeasurementManager:removeVariable(kind, rawValue, subEngine)
-  log:trace("MeasurementManager:removeVariable('%s', '%s')", kind, rawValue)
-  if not self._selectedMeasurement or not self._measurements[self._selectedMeasurement] then
-    log:warn("removeVariable: no measurement selected")
+--- Update measurement settings.
+--- @param name string
+--- @param settings table Partial settings to merge: {interval?, enabled?, dedup?}
+--- @param subEngine SubscriptionEngine|nil
+function MeasurementManager:updateSettings(name, settings, subEngine)
+  log:trace("MeasurementManager:updateSettings('%s')", name)
+  local meas = self._measurements[name]
+  if not meas then
     return
   end
 
-  -- Extract the raw variable ID from a label like "Device > Var [96:1005]"
-  local varId = tostring(rawValue):match("%[(%d+:%d+)%]$") or tostring(rawValue)
-  local meas = self._measurements[self._selectedMeasurement]
-
-  local newList = {}
-  for _, existing in ipairs(meas[kind] or {}) do
-    if tostring(existing) ~= varId then
-      newList[#newList + 1] = existing
-    end
+  if settings.interval ~= nil then
+    meas.interval = settings.interval
   end
-  meas[kind] = newList
 
-  self:_save()
-  log:info(
-    "Removed %s '%s' from measurement '%s'",
-    kind == "fields" and "field" or "tag",
-    varId,
-    self._selectedMeasurement
-  )
+  if settings.dedup ~= nil then
+    meas.dedup = settings.dedup
+  end
 
-  if subEngine then
-    subEngine:refreshSubscriptions(self._selectedMeasurement)
-  end
-  self:refreshUI()
-end
-
---- Update the write interval for the selected measurement.
---- @param interval string
-function MeasurementManager:setInterval(interval)
-  log:trace("MeasurementManager:setInterval('%s')", interval)
-  if not self._selectedMeasurement or not self._measurements[self._selectedMeasurement] then
-    return
-  end
-  local meas = self._measurements[self._selectedMeasurement]
-  local previous = meas.interval
-  meas.interval = interval
-  if previous ~= interval then
-    self:_save()
-    log:info("Updated write interval for '%s': %s -> %s", self._selectedMeasurement, previous, interval)
-  end
-end
-
---- Update the enabled state for the selected measurement.
---- @param enabled boolean
---- @param subEngine SubscriptionEngine|nil Subscription engine for sub/unsub.
-function MeasurementManager:setEnabled(enabled, subEngine)
-  log:trace("MeasurementManager:setEnabled(%s)", tostring(enabled))
-  if not self._selectedMeasurement or not self._measurements[self._selectedMeasurement] then
-    return
-  end
-  local meas = self._measurements[self._selectedMeasurement]
-  local previous = meas.enabled
-  meas.enabled = enabled
-  if previous ~= enabled then
-    self:_save()
-    log:info(
-      "Updated enabled state for '%s': %s -> %s",
-      self._selectedMeasurement,
-      tostring(previous),
-      tostring(enabled)
-    )
+  if settings.enabled ~= nil and settings.enabled ~= meas.enabled then
+    meas.enabled = settings.enabled
     if subEngine then
-      if enabled then
-        subEngine:subscribeToMeasurement(self._selectedMeasurement)
+      if settings.enabled then
+        subEngine:subscribeToMeasurement(name)
       else
-        subEngine:unsubscribeFromMeasurement(self._selectedMeasurement)
+        subEngine:unsubscribeFromMeasurement(name)
       end
     end
   end
+
+  self:_save()
 end
 
 ---------------------------------------------------------------------------
--- UI Helpers
+-- Schema CRUD (Field/Tag Definitions)
 ---------------------------------------------------------------------------
 
---- Resolve a variable ID string to a human-readable label.
---- @param varIdStr string e.g. "96:1005"
---- @return string label e.g. "Shelly BLU Motion > Illuminance"
-local function resolveVariableLabel(varIdStr)
-  local devStr, varStr = tostring(varIdStr):match("^(%d+):(%d+)$")
-  if not devStr then
-    return tostring(varIdStr)
-  end
-  local devId = tonumber(devStr)
-  local varId = tonumber(varStr)
-
-  -- Resolve device name
-  local devName
-  local ok, name = pcall(C4.GetDeviceDisplayName, C4, devId)
-  if ok and name and name ~= "" then
-    devName = name
-  else
-    devName = "Device " .. devStr
+--- Add a field name to the measurement schema.
+--- @param measName string
+--- @param fieldName string
+--- @return boolean success
+function MeasurementManager:addFieldDef(measName, fieldName)
+  log:trace("MeasurementManager:addFieldDef('%s', '%s')", measName, fieldName)
+  local meas = self._measurements[measName]
+  if not meas then
+    return false
   end
 
-  -- Resolve variable name
-  local varName
-  local ok2, vars = pcall(C4.GetDeviceVariables, C4, devId)
-  if ok2 and vars then
-    local entry = vars[tostring(varId)]
-    if entry and entry.name and entry.name ~= "" then
-      varName = entry.name
+  -- Check for duplicates in fields and tags
+  for _, existing in ipairs(meas.fieldDefs) do
+    if existing == fieldName then
+      log:warn("Field '%s' already exists in measurement '%s'", fieldName, measName)
+      return false
     end
   end
-  if not varName then
-    varName = "var" .. varStr
-  end
-
-  return devName .. " > " .. varName
-end
-
---- Update the "Remove Measurement" and "Configure Measurement" DYNAMIC_LIST properties.
---- Follows the Home Connect pattern: populate both lists with the same options,
---- hide both when there are no measurements.
-function MeasurementManager:updateLists()
-  log:trace("MeasurementManager:updateLists()")
-  UpdateProperty("Add Measurement", "")
-
-  local names = {}
-  for name, _ in pairs(self._measurements) do
-    names[#names + 1] = name
-  end
-  table.sort(names)
-
-  -- If the selected measurement no longer exists, fall back to none
-  if self._selectedMeasurement and not self._measurements[self._selectedMeasurement] then
-    self._selectedMeasurement = nil
-  end
-
-  -- Build options list with (Select) placeholder
-  local options = { constants.SELECT_OPTION }
-  for _, name in ipairs(names) do
-    options[#options + 1] = name
-  end
-  local optionsStr = table.concat(options, ",")
-
-  -- Show/hide based on whether any measurements exist
-  local visibility = #names > 0 and constants.SHOW_PROPERTY or constants.HIDE_PROPERTY
-
-  C4:UpdatePropertyList("Remove Measurement", optionsStr, constants.SELECT_OPTION)
-  C4:UpdatePropertyList("Configure Measurement", optionsStr, self._selectedMeasurement or constants.SELECT_OPTION)
-  C4:SetPropertyAttribs("Remove Measurement", visibility)
-  C4:SetPropertyAttribs("Configure Measurement", visibility)
-
-  UpdateProperty("Configure Measurement", self._selectedMeasurement or constants.SELECT_OPTION, true)
-  log:debug("Updated measurement lists (%d measurements)", #names)
-end
-
---- Build a DYNAMIC_LIST options string for a variable list with human-readable labels.
---- @param varIds string[] Variable ID strings.
---- @return string optionsStr Comma-delimited options with (Select) placeholder.
---- @return number count Number of variables (excluding placeholder).
-local function buildVariableListOptions(varIds)
-  local options = { constants.SELECT_OPTION }
-  for _, varId in ipairs(varIds) do
-    options[#options + 1] = resolveVariableLabel(varId) .. " [" .. varId .. "]"
-  end
-  return table.concat(options, ","), #varIds
-end
-
---- Refresh measurement config properties to reflect the currently selected measurement.
-function MeasurementManager:refreshUI()
-  log:trace("MeasurementManager:refreshUI()")
-  local configProps = {
-    "Add Field",
-    "Remove Field",
-    "Add Tag",
-    "Remove Tag",
-    "Measurement Write Interval",
-    "Measurement Enabled",
-  }
-
-  if not self._selectedMeasurement or not self._measurements[self._selectedMeasurement] then
-    for _, propName in ipairs(configProps) do
-      C4:SetPropertyAttribs(propName, constants.HIDE_PROPERTY)
+  for _, existing in ipairs(meas.tagDefs) do
+    if existing == fieldName then
+      log:warn("'%s' already exists as a tag in measurement '%s'", fieldName, measName)
+      return false
     end
-    log:debug("refreshMeasurementUI: no measurement selected, hiding config properties")
+  end
+
+  meas.fieldDefs[#meas.fieldDefs + 1] = fieldName
+  self:_save()
+  log:info("Added field def '%s' to measurement '%s'", fieldName, measName)
+  return true
+end
+
+--- Remove a field name from the measurement schema.
+--- Also removes the corresponding mapping from all readings.
+--- @param measName string
+--- @param fieldName string
+--- @param subEngine SubscriptionEngine|nil
+function MeasurementManager:removeFieldDef(measName, fieldName, subEngine)
+  log:trace("MeasurementManager:removeFieldDef('%s', '%s')", measName, fieldName)
+  local meas = self._measurements[measName]
+  if not meas then
     return
   end
 
-  local meas = self._measurements[self._selectedMeasurement]
+  local newDefs = {}
+  for _, def in ipairs(meas.fieldDefs) do
+    if def ~= fieldName then
+      newDefs[#newDefs + 1] = def
+    end
+  end
+  meas.fieldDefs = newDefs
 
-  -- Always show add selectors and settings
-  C4:SetPropertyAttribs("Add Field", constants.SHOW_PROPERTY)
-  C4:SetPropertyAttribs("Add Tag", constants.SHOW_PROPERTY)
-  C4:SetPropertyAttribs("Measurement Write Interval", constants.SHOW_PROPERTY)
-  C4:SetPropertyAttribs("Measurement Enabled", constants.SHOW_PROPERTY)
+  -- Remove from all readings
+  for _, reading in pairs(meas.readings) do
+    reading.mappings[fieldName] = nil
+  end
 
-  -- Clear add selectors
-  UpdateProperty("Add Field", "")
-  UpdateProperty("Add Tag", "")
+  self:_save()
+  log:info("Removed field def '%s' from measurement '%s'", fieldName, measName)
 
-  -- Populate Remove Field list — hide when empty
-  local fieldOpts, fieldCount = buildVariableListOptions(meas.fields or {})
-  C4:UpdatePropertyList("Remove Field", fieldOpts, constants.SELECT_OPTION)
-  C4:SetPropertyAttribs("Remove Field", fieldCount > 0 and constants.SHOW_PROPERTY or constants.HIDE_PROPERTY)
+  if subEngine then
+    subEngine:refreshMeasurementSubscriptions(measName)
+  end
+end
 
-  -- Populate Remove Tag list — hide when empty
-  local tagOpts, tagCount = buildVariableListOptions(meas.tags or {})
-  C4:UpdatePropertyList("Remove Tag", tagOpts, constants.SELECT_OPTION)
-  C4:SetPropertyAttribs("Remove Tag", tagCount > 0 and constants.SHOW_PROPERTY or constants.HIDE_PROPERTY)
+--- Add a tag name to the measurement schema.
+--- @param measName string
+--- @param tagName string
+--- @return boolean success
+function MeasurementManager:addTagDef(measName, tagName)
+  log:trace("MeasurementManager:addTagDef('%s', '%s')", measName, tagName)
+  local meas = self._measurements[measName]
+  if not meas then
+    return false
+  end
 
-  UpdateProperty("Measurement Write Interval", meas.interval or "Default")
-  UpdateProperty("Measurement Enabled", (meas.enabled == false) and "Off" or "On")
+  for _, existing in ipairs(meas.tagDefs) do
+    if existing == tagName then
+      log:warn("Tag '%s' already exists in measurement '%s'", tagName, measName)
+      return false
+    end
+  end
+  for _, existing in ipairs(meas.fieldDefs) do
+    if existing == tagName then
+      log:warn("'%s' already exists as a field in measurement '%s'", tagName, measName)
+      return false
+    end
+  end
 
-  log:debug("refreshMeasurementUI: updated UI for measurement '%s'", self._selectedMeasurement)
+  meas.tagDefs[#meas.tagDefs + 1] = tagName
+  self:_save()
+  log:info("Added tag def '%s' to measurement '%s'", tagName, measName)
+  return true
+end
+
+--- Remove a tag name from the measurement schema.
+--- Also removes the corresponding mapping from all readings.
+--- @param measName string
+--- @param tagName string
+--- @param subEngine SubscriptionEngine|nil
+function MeasurementManager:removeTagDef(measName, tagName, subEngine)
+  log:trace("MeasurementManager:removeTagDef('%s', '%s')", measName, tagName)
+  local meas = self._measurements[measName]
+  if not meas then
+    return
+  end
+
+  local newDefs = {}
+  for _, def in ipairs(meas.tagDefs) do
+    if def ~= tagName then
+      newDefs[#newDefs + 1] = def
+    end
+  end
+  meas.tagDefs = newDefs
+
+  for _, reading in pairs(meas.readings) do
+    reading.mappings[tagName] = nil
+  end
+
+  self:_save()
+  log:info("Removed tag def '%s' from measurement '%s'", tagName, measName)
+
+  if subEngine then
+    subEngine:refreshMeasurementSubscriptions(measName)
+  end
+end
+
+---------------------------------------------------------------------------
+-- Reading CRUD
+---------------------------------------------------------------------------
+
+--- Add a reading to a measurement.
+--- @param measName string
+--- @param label string Human-readable label for the reading.
+--- @return boolean success
+function MeasurementManager:addReading(measName, label)
+  log:trace("MeasurementManager:addReading('%s', '%s')", measName, label)
+  local meas = self._measurements[measName]
+  if not meas then
+    return false
+  end
+
+  if not label or label == "" then
+    log:warn("Cannot add reading: label is empty")
+    return false
+  end
+
+  if meas.readings[label] then
+    log:warn("Reading '%s' already exists in measurement '%s'", label, measName)
+    return false
+  end
+
+  meas.readings[label] = {
+    enabled = true,
+    mappings = {},
+  }
+
+  self:_save()
+  log:info("Added reading '%s' to measurement '%s'", label, measName)
+  return true
+end
+
+--- Remove a reading from a measurement.
+--- @param measName string
+--- @param label string
+--- @param subEngine SubscriptionEngine|nil
+--- @param influxWriter InfluxWriter|nil
+function MeasurementManager:removeReading(measName, label, subEngine, influxWriter)
+  log:trace("MeasurementManager:removeReading('%s', '%s')", measName, label)
+  local meas = self._measurements[measName]
+  if not meas or not meas.readings[label] then
+    return
+  end
+
+  if subEngine then
+    subEngine:unsubscribeFromReading(measName, label)
+  end
+
+  if influxWriter then
+    influxWriter:removeMeasurement(measName .. "::" .. label)
+  end
+
+  meas.readings[label] = nil
+  self:_save()
+  log:info("Removed reading '%s' from measurement '%s'", label, measName)
+end
+
+--- Update reading enabled state.
+--- @param measName string
+--- @param label string
+--- @param enabled boolean
+--- @param subEngine SubscriptionEngine|nil
+function MeasurementManager:setReadingEnabled(measName, label, enabled, subEngine)
+  local meas = self._measurements[measName]
+  if not meas or not meas.readings[label] then
+    return
+  end
+
+  local reading = meas.readings[label]
+  if reading.enabled == enabled then
+    return
+  end
+
+  reading.enabled = enabled
+  self:_save()
+
+  if subEngine then
+    if enabled then
+      subEngine:subscribeToReading(measName, label)
+    else
+      subEngine:unsubscribeFromReading(measName, label)
+    end
+  end
+end
+
+---------------------------------------------------------------------------
+-- Mapping CRUD
+---------------------------------------------------------------------------
+
+--- Set or update a mapping for a reading.
+--- @param measName string
+--- @param readingLabel string
+--- @param mappingName string The field or tag name being mapped.
+--- @param mappingDef MappingDef
+--- @param subEngine SubscriptionEngine|nil
+function MeasurementManager:setMapping(measName, readingLabel, mappingName, mappingDef, subEngine)
+  log:trace("MeasurementManager:setMapping('%s', '%s', '%s')", measName, readingLabel, mappingName)
+  local meas = self._measurements[measName]
+  if not meas or not meas.readings[readingLabel] then
+    return
+  end
+
+  local reading = meas.readings[readingLabel]
+  reading.mappings[mappingName] = mappingDef
+
+  self:_save()
+  log:info("Set mapping '%s' for reading '%s' in measurement '%s'", mappingName, readingLabel, measName)
+
+  if subEngine and meas.enabled and reading.enabled then
+    subEngine:refreshReadingSubscriptions(measName, readingLabel)
+  end
+end
+
+--- Remove a mapping from a reading.
+--- @param measName string
+--- @param readingLabel string
+--- @param mappingName string
+--- @param subEngine SubscriptionEngine|nil
+function MeasurementManager:removeMapping(measName, readingLabel, mappingName, subEngine)
+  log:trace("MeasurementManager:removeMapping('%s', '%s', '%s')", measName, readingLabel, mappingName)
+  local meas = self._measurements[measName]
+  if not meas or not meas.readings[readingLabel] then
+    return
+  end
+
+  meas.readings[readingLabel].mappings[mappingName] = nil
+  self:_save()
+
+  if subEngine then
+    subEngine:refreshReadingSubscriptions(measName, readingLabel)
+  end
+end
+
+---------------------------------------------------------------------------
+-- JSON Serialization (for Web UI)
+---------------------------------------------------------------------------
+
+--- Return the full measurement config as a JSON-serializable table.
+--- @return table
+function MeasurementManager:getConfigData()
+  log:trace("MeasurementManager:getConfigData()")
+  return self._measurements
+end
+
+--- Apply a complete measurement config received from the web UI.
+--- @param measName string
+--- @param config MeasurementConfig
+--- @param subEngine SubscriptionEngine|nil
+--- @param influxWriter InfluxWriter|nil
+function MeasurementManager:applyMeasurementConfig(measName, config, subEngine, influxWriter)
+  log:trace("MeasurementManager:applyMeasurementConfig('%s')", measName)
+
+  -- Unsubscribe from old config
+  if self._measurements[measName] and subEngine then
+    subEngine:unsubscribeFromMeasurement(measName)
+  end
+
+  -- Remove old writer buffers
+  if self._measurements[measName] and influxWriter then
+    for readingLabel in pairs(self._measurements[measName].readings or {}) do
+      influxWriter:removeMeasurement(measName .. "::" .. readingLabel)
+    end
+  end
+
+  self._measurements[measName] = config
+  self:_save()
+
+  -- Subscribe to new config
+  if subEngine and config.enabled then
+    subEngine:subscribeToMeasurement(measName)
+  end
+
+  log:info("Applied config for measurement '%s'", measName)
 end
 
 return MeasurementManager

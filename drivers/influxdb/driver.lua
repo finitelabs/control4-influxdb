@@ -94,8 +94,6 @@ end
 --- Handle an offline-buffer state change (called from OfflineBuffer callbacks).
 --- @param state string One of "Connected", "Disconnected", "Reconnecting"
 local function onBufferStateChange(state)
-  UpdateProperty("Connection State", state)
-
   if state == OfflineBuffer.State.CONNECTED then
     influxClient:updateConnectionStatus(true)
     if offlineBuffer then
@@ -279,117 +277,293 @@ function OPC.Default_Write_Interval(propertyValue)
   end
 end
 
---- Handle the "Select Measurement" property change.
---- Updates visibility of configuration properties based on the selected measurement.
---- @param propertyValue string
-function OPC.Configure_Measurement(propertyValue)
-  log:trace("OPC.Configure_Measurement('%s')", propertyValue)
-  if not gInitialized then
-    return
-  end
-  measManager:setSelected(propertyValue)
+---------------------------------------------------------------------------
+-- Web UI Request Handlers (UIR table)
+---------------------------------------------------------------------------
+
+--- Send a response to the web UI via both return value (for REST) and
+--- SendDataToUI (for socket push). Returns JSON for REST callers.
+--- @param command string The response command name.
+--- @param data table The response data.
+--- @return string JSON response for REST callers.
+local function uiRespond(command, data)
+  C4:SendDataToUI(command, data)
+  data._command = command
+  return JSON:encode(data)
 end
 
---- Handle the "Measurement Write Interval" property change for the selected measurement.
---- @param propertyValue string
-function OPC.Measurement_Write_Interval(propertyValue)
-  log:trace("OPC.Measurement_Write_Interval('%s')", propertyValue)
-  if not gInitialized then
-    return
+--- Send the full measurement configuration to the web UI.
+function UIR._GET_CONFIG()
+  log:trace("UIR.GET_CONFIG()")
+  -- Restart interval timers in case measurement config changed
+  if subEngine then
+    subEngine:restartIntervalTimers()
   end
-  measManager:setInterval(propertyValue)
+  local config = measManager:getConfigData()
+  return uiRespond("CONFIG_DATA", { config = JSON:encode(config) })
 end
 
---- Handle the "Measurement Enabled" property change for the selected measurement.
---- @param propertyValue string
-function OPC.Measurement_Enabled(propertyValue)
-  log:trace("OPC.Measurement_Enabled('%s')", propertyValue)
-  if not gInitialized then
-    return
-  end
-  measManager:setEnabled(propertyValue == "On", subEngine)
+--- Send connection status and metrics to the web UI.
+--- Reads from Properties (source of truth) for connection state.
+function UIR._GET_STATUS()
+  log:trace("UIR.GET_STATUS()")
+  local metrics = influxWriter and influxWriter:getMetrics() or {}
+  local status = {
+    connectionState = influxClient:isConnected() and "Connected" or "Disconnected",
+    url = Properties["InfluxDB URL"] or "",
+    database = Properties["Database"] or "",
+    pointsBuffered = metrics.pointsBuffered or 0,
+    pointsWritten = metrics.pointsWritten or 0,
+    pointsDropped = metrics.pointsDropped or 0,
+    writeErrors = metrics.writeErrors or 0,
+  }
+  return uiRespond("STATUS_DATA", { status = JSON:encode(status) })
 end
 
---- Handle the "Add Field" variable selector change.
---- @param propertyValue string
-function OPC.Add_Field(propertyValue)
-  log:trace("OPC.Add_Field('%s')", propertyValue)
-  if not gInitialized then
-    return
+--- Send the device list to the web UI with display names (Room > Device).
+function UIR._GET_DEVICES()
+  log:trace("UIR.GET_DEVICES()")
+  local devices = {}
+  local seen = {}
+  local xml = C4:GetProjectItems("LIMIT_DEVICE_DRIVERS", "NO_ROOT_TAGS") or ""
+  for idStr in xml:gmatch("<id>(%d+)</id>") do
+    local id = tonumber(idStr)
+    if id and not seen[id] then
+      seen[id] = true
+      local device = GetDevice(id)
+      if device then
+        -- Only include devices that have variables
+        local ok, vars = pcall(C4.GetDeviceVariables, C4, id)
+        if ok and vars and next(vars) then
+          devices[#devices + 1] = {
+            id = id,
+            name = device.deviceName or ("Device " .. id),
+            displayName = device.displayName or device.deviceName or ("Device " .. id),
+            roomName = device.roomName or "",
+          }
+        end
+      end
+    end
   end
-  if IsEmpty(propertyValue) then
-    return
-  end
-  measManager:addVariable("fields", propertyValue, subEngine)
+  table.sort(devices, function(a, b)
+    return (a.displayName or "") < (b.displayName or "")
+  end)
+  return uiRespond("DEVICES_DATA", { devices = JSON:encode(devices) })
 end
 
---- Handle the "Add Tag" variable selector change.
---- @param propertyValue string
-function OPC.Add_Tag(propertyValue)
-  log:trace("OPC.Add_Tag('%s')", propertyValue)
-  if not gInitialized then
+--- Send variables for a specific device to the web UI.
+--- @param tParams table
+function UIR._GET_DEVICE_VARIABLES(tParams)
+  log:trace("UIR.GET_DEVICE_VARIABLES()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local devId = tonumber(params.deviceId)
+  if not devId then
     return
   end
-  if IsEmpty(propertyValue) then
-    return
+  local vars = {}
+  local ok, deviceVars = pcall(C4.GetDeviceVariables, C4, devId)
+  if ok and deviceVars then
+    for varId, varInfo in pairs(deviceVars) do
+      vars[#vars + 1] = {
+        id = tonumber(varId),
+        name = varInfo.name or ("var" .. varId),
+        type = varInfo.type or "STRING",
+        value = varInfo.value,
+      }
+    end
   end
-  measManager:addVariable("tags", propertyValue, subEngine)
+  table.sort(vars, function(a, b)
+    return (a.name or "") < (b.name or "")
+  end)
+  return uiRespond("DEVICE_VARIABLES_DATA", {
+    deviceId = tostring(devId),
+    variables = JSON:encode(vars),
+  })
 end
 
---- Handle the "Remove Field" property change.
---- @param propertyValue string
-function OPC.Remove_Field(propertyValue)
-  log:trace("OPC.Remove_Field('%s')", propertyValue)
-  if not gInitialized then
-    return
+--- Add a new measurement.
+--- @param tParams table
+function UIR._ADD_MEASUREMENT(tParams)
+  log:trace("UIR.ADD_MEASUREMENT()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if params.name then
+    measManager:add(params.name)
   end
-  if propertyValue == constants.SELECT_OPTION or IsEmpty(propertyValue) then
-    return
-  end
-  measManager:removeVariable("fields", propertyValue, subEngine)
+  return UIR._GET_CONFIG()
 end
 
---- Handle the "Remove Tag" property change.
---- @param propertyValue string
-function OPC.Remove_Tag(propertyValue)
-  log:trace("OPC.Remove_Tag('%s')", propertyValue)
-  if not gInitialized then
-    return
+--- Delete a measurement.
+--- @param tParams table
+function UIR._DELETE_MEASUREMENT(tParams)
+  log:trace("UIR.DELETE_MEASUREMENT()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if params.name then
+    measManager:remove(params.name, subEngine, influxWriter)
   end
-  if propertyValue == constants.SELECT_OPTION or IsEmpty(propertyValue) then
-    return
-  end
-  measManager:removeVariable("tags", propertyValue, subEngine)
+  return UIR._GET_CONFIG()
 end
 
---- Handle the "Add Measurement" property change.
---- Creates a new measurement when a non-empty name is set, then clears the field.
---- @param propertyValue string
-function OPC.Add_Measurement(propertyValue)
-  log:trace("OPC.Add_Measurement('%s')", propertyValue)
-  if not gInitialized then
-    return
+--- Add a field definition to a measurement schema.
+--- @param tParams table
+function UIR._ADD_FIELD_DEF(tParams)
+  log:trace("UIR.ADD_FIELD_DEF()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if params.measurement and params.name then
+    measManager:addFieldDef(params.measurement, params.name)
   end
-  if IsEmpty(propertyValue) then
-    return
-  end
-  measManager:add(propertyValue)
-  measManager:updateLists()
+  return UIR._GET_CONFIG()
 end
 
---- Handle the "Remove Measurement" property change.
---- Removes the selected measurement from configuration.
---- @param propertyValue string
-function OPC.Remove_Measurement(propertyValue)
-  log:trace("OPC.Remove_Measurement('%s')", propertyValue)
-  if not gInitialized then
-    return
+--- Remove a field definition from a measurement schema.
+--- @param tParams table
+function UIR._REMOVE_FIELD_DEF(tParams)
+  log:trace("UIR.REMOVE_FIELD_DEF()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if params.measurement and params.name then
+    measManager:removeFieldDef(params.measurement, params.name, subEngine)
   end
-  if propertyValue == constants.SELECT_OPTION or not propertyValue or propertyValue == "" then
-    return
+  return UIR._GET_CONFIG()
+end
+
+--- Add a tag definition to a measurement schema.
+--- @param tParams table
+function UIR._ADD_TAG_DEF(tParams)
+  log:trace("UIR.ADD_TAG_DEF()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if params.measurement and params.name then
+    measManager:addTagDef(params.measurement, params.name)
   end
-  measManager:remove(propertyValue, subEngine, influxWriter)
-  measManager:updateLists()
+  return UIR._GET_CONFIG()
+end
+
+--- Remove a tag definition from a measurement schema.
+--- @param tParams table
+function UIR._REMOVE_TAG_DEF(tParams)
+  log:trace("UIR.REMOVE_TAG_DEF()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if params.measurement and params.name then
+    measManager:removeTagDef(params.measurement, params.name, subEngine)
+  end
+  return UIR._GET_CONFIG()
+end
+
+--- Update measurement settings (interval, enabled).
+--- @param tParams table
+function UIR._UPDATE_MEAS_SETTINGS(tParams)
+  log:trace("UIR.UPDATE_MEAS_SETTINGS()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if params.measurement then
+    measManager:updateSettings(params.measurement, {
+      interval = params.interval,
+      dedup = params.dedup,
+      enabled = params.enabled,
+    }, subEngine)
+  end
+  return UIR._GET_CONFIG()
+end
+
+--- Add a reading to a measurement.
+--- @param tParams table
+function UIR._ADD_READING(tParams)
+  log:trace("UIR.ADD_READING()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if params.measurement and params.label then
+    measManager:addReading(params.measurement, params.label)
+  end
+  return UIR._GET_CONFIG()
+end
+
+--- Remove a reading from a measurement.
+--- @param tParams table
+function UIR._REMOVE_READING(tParams)
+  log:trace("UIR.REMOVE_READING()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if params.measurement and params.label then
+    measManager:removeReading(params.measurement, params.label, subEngine, influxWriter)
+  end
+  return UIR._GET_CONFIG()
+end
+
+--- Save a mapping for a reading.
+--- @param tParams table
+function UIR._SAVE_MAPPING(tParams)
+  log:trace("UIR.SAVE_MAPPING()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if params.measurement and params.reading and params.name and params.mapping then
+    measManager:setMapping(params.measurement, params.reading, params.name, params.mapping, subEngine)
+  end
+  return UIR._GET_CONFIG()
+end
+
+--- Update reading enabled state.
+--- @param tParams table
+function UIR._UPDATE_READING_ENABLED(tParams)
+  log:trace("UIR.UPDATE_READING_ENABLED()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if params.measurement and params.label then
+    measManager:setReadingEnabled(params.measurement, params.label, params.enabled, subEngine)
+  end
+  return UIR._GET_CONFIG()
+end
+
+--- Include device_name and room_name tags for a device on a specific reading.
+--- Adds tag defs if missing and creates literal mappings with transforms.
+--- @param tParams table
+function UIR._INCLUDE_DEVICE_TAGS(tParams)
+  log:trace("UIR.INCLUDE_DEVICE_TAGS()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if not params.measurement or not params.deviceId then
+    return UIR._GET_CONFIG()
+  end
+
+  local measName = params.measurement
+  local deviceId = tostring(params.deviceId)
+  local readingLabel = params.reading
+
+  -- Add tag defs if they don't exist
+  measManager:addTagDef(measName, "device_name")
+  measManager:addTagDef(measName, "room_name")
+
+  local meas = measManager:get(measName)
+  if meas then
+    -- If a specific reading is provided, only set for that reading
+    -- Otherwise set for all readings
+    local readings = {}
+    if readingLabel and meas.readings[readingLabel] then
+      readings[readingLabel] = true
+    else
+      for label, _ in pairs(meas.readings) do
+        readings[label] = true
+      end
+    end
+    for label, _ in pairs(readings) do
+      measManager:setMapping(measName, label, "device_name", {
+        source = "literal",
+        literal = deviceId,
+        transform = "device_name(value)",
+      }, subEngine)
+      measManager:setMapping(measName, label, "room_name", {
+        source = "literal",
+        literal = deviceId,
+        transform = "room_name(value)",
+      }, subEngine)
+    end
+  end
+
+  return UIR._GET_CONFIG()
+end
+
+--- Validate a transform expression.
+--- @param tParams table
+function UIR._VALIDATE_TRANSFORM(tParams)
+  log:trace("UIR.VALIDATE_TRANSFORM()")
+  local Transform = require("lib.transform")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local valid, err = Transform.validate(params.expression or "")
+  C4:SendDataToUI("VALIDATE_RESULT", {
+    valid = valid and "true" or "false",
+    error = err or "",
+  })
 end
 
 ---------------------------------------------------------------------------
@@ -492,8 +666,6 @@ function OnDriverLateInit()
 
   -- Initialize measurement manager (loads from persist)
   measManager = MeasurementManager:new()
-  measManager:updateLists()
-  measManager:refreshUI()
 
   -- Initialize InfluxWriter batch engine
   initInfluxWriter()

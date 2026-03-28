@@ -212,75 +212,10 @@
         <readonly>true</readonly>
         <description>Current number of points in the offline buffer</description>
       </property>
-      <property>
-        <name>Connection State</name>
-        <type>STRING</type>
-        <default>Disconnected</default>
-        <readonly>true</readonly>
-        <description>Current connection state (Connected/Disconnected/Reconnecting)</description>
-      </property>
-      <property>
-        <name>Measurements</name>
-        <type>LABEL</type>
-        <default>Measurement Configuration</default>
-      </property>
-      <property>
-        <name>Add Measurement</name>
-        <type>STRING</type>
-        <default/>
-        <description>Enter a measurement name and press Set to create it</description>
-      </property>
-      <property>
-        <name>Remove Measurement</name>
-        <type>DYNAMIC_LIST</type>
-      </property>
-      <property>
-        <name>Configure Measurement</name>
-        <type>DYNAMIC_LIST</type>
-      </property>
-      <property>
-        <name>Add Field</name>
-        <type>VARIABLE_SELECTOR</type>
-        <default></default>
-        <variabletype>all</variabletype>
-      </property>
-      <property>
-        <name>Remove Field</name>
-        <type>DYNAMIC_LIST</type>
-      </property>
-      <property>
-        <name>Add Tag</name>
-        <type>VARIABLE_SELECTOR</type>
-        <default></default>
-        <variabletype>all</variabletype>
-      </property>
-      <property>
-        <name>Remove Tag</name>
-        <type>DYNAMIC_LIST</type>
-      </property>
-      <property>
-        <name>Measurement Write Interval</name>
-        <type>LIST</type>
-        <default>Default</default>
-        <items>
-          <item>Default</item>
-          <item>10s</item>
-          <item>30s</item>
-          <item>1m</item>
-          <item>5m</item>
-          <item>15m</item>
-        </items>
-      </property>
-      <property>
-        <name>Measurement Enabled</name>
-        <type>LIST</type>
-        <default>On</default>
-        <items>
-          <item>On</item>
-          <item>Off</item>
-        </items>
-      </property>
     </properties>
+    <tabs>
+      <tab name="Settings" file="html/index.html"/>
+    </tabs>
     <actions>
       <!-- #ifndef DRIVERCENTRAL -->
       <action>
