@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>InfluxDB Data Logger</title>
+  <style>
+    :root {
+      --bg: #f5f5f7;
+      --surface: #ffffff;
+      --surface-hover: #f0f0f2;
+      --border: #d1d5db;
+      --text: #1a1a1a;
+      --text-muted: #6b7280;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --danger: #dc2626;
+      --danger-hover: #b91c1c;
+      --success: #16a34a;
+      --warning: #d97706;
+      --radius: 6px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .nav {
+      display: flex;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 16px;
+      box-shadow: var(--shadow);
+    }
+    .nav-tab {
+      padding: 10px 18px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 13px;
+      transition: all 0.15s;
+    }
+    .nav-tab:hover { color: var(--text); }
+    .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .panel { display: none; padding: 16px; max-width: 900px; }
+    .panel.active { display: block; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      margin-bottom: 12px;
+      box-shadow: var(--shadow);
+    }
+    .card h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+      font-weight: 600;
+    }
+
+    label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 3px; font-weight: 500; }
+    input[type="text"], input[type="password"], select {
+      width: 100%;
+      padding: 6px 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 13px;
+      font-family: var(--font);
+      margin-bottom: 10px;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+    input:read-only { background: var(--bg); color: var(--text-muted); }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 5px 12px; border: none; border-radius: var(--radius);
+      font-size: 12px; font-family: var(--font); cursor: pointer;
+      font-weight: 500; transition: background 0.15s;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-danger:hover { background: var(--danger-hover); }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn-outline:hover { background: var(--surface-hover); }
+    .btn-sm { padding: 3px 8px; font-size: 11px; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+    th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-weight: 600; }
+    tr:hover td { background: var(--surface-hover); }
+
+    .chip {
+      display: inline-block; padding: 1px 7px; border-radius: 10px;
+      font-size: 10px; font-weight: 600;
+    }
+    .chip-field { background: #dbeafe; color: #1d4ed8; }
+    .chip-tag { background: #d1fae5; color: #059669; }
+    .chip-on { background: #d1fae5; color: var(--success); }
+    .chip-off { background: #fee2e2; color: var(--danger); }
+
+    .status-dot {
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: 50%; margin-right: 5px;
+    }
+    .status-dot.connected { background: var(--success); }
+    .status-dot.disconnected { background: var(--danger); }
+    .status-dot.reconnecting { background: var(--warning); }
+
+    .flex { display: flex; }
+    .flex-between { display: flex; justify-content: space-between; align-items: center; }
+    .gap-8 { gap: 8px; }
+    .mb-8 { margin-bottom: 8px; }
+    .mb-12 { margin-bottom: 12px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+    .empty { text-align: center; padding: 30px 16px; color: var(--text-muted); font-size: 12px; }
+
+    .back-link { color: var(--accent); cursor: pointer; font-size: 12px; margin-bottom: 10px; display: inline-block; }
+    .back-link:hover { text-decoration: underline; }
+
+    .prop-group { margin-bottom: 14px; }
+    .prop-group h3 { border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+
+    .reading-card {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 10px; margin-bottom: 10px;
+    }
+    .mapping-row {
+      display: grid;
+      grid-template-columns: 90px 80px 1fr 1fr 150px 120px;
+      gap: 6px; align-items: center;
+      padding: 5px 0; border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    .mapping-row:last-child { border-bottom: none; }
+    .mapping-row select, .mapping-row input { margin: 0; padding: 3px 5px; font-size: 12px; }
+    .mapping-span2 { grid-column: span 2; }
+    .mapping-preview { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 80px; text-align: right; }
+    .input-error { border-color: var(--danger) !important; }
+    .input-valid { border-color: var(--success) !important; }
+    .error-text { color: var(--danger); font-size: 11px; margin-top: -8px; margin-bottom: 8px; }
+    .hint { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4; }
+    .help-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px; border-radius: 50%; background: var(--border);
+      color: var(--text-muted); font-size: 10px; font-weight: 700; cursor: pointer;
+      margin-left: 4px; vertical-align: middle; position: relative;
+    }
+    .help-icon:hover { background: var(--accent); color: #fff; }
+    .help-popup {
+      display: none; position: absolute; top: 22px; left: -8px; z-index: 100;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 10px 12px;
+      width: 300px; font-size: 12px; font-weight: 400; color: var(--text);
+      line-height: 1.5; cursor: default; text-align: left;
+      text-transform: none; letter-spacing: normal;
+    }
+    .help-icon:hover .help-popup, .help-popup:hover { display: block; }
+    .help-popup code { background: var(--bg); padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+    .help-popup ul { margin: 4px 0 4px 16px; padding: 0; }
+    .help-popup li { margin-bottom: 2px; }
+
+    /* Searchable dropdown */
+    .search-select { position: relative; display: inline-block; }
+    .search-select-trigger {
+      width: 100%; margin: 0; padding: 3px 20px 3px 5px; font-size: 12px;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%236b7280'/%3E%3C/svg%3E") no-repeat right 6px center;
+      cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--text); min-height: 22px; line-height: 16px;
+    }
+    .search-select-trigger.placeholder { color: var(--text-muted); }
+    .search-select-popup {
+      display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      min-width: 220px;
+    }
+    .search-select.open .search-select-popup { display: block; }
+    .search-select-search {
+      width: 100%; margin: 0; padding: 5px 8px; font-size: 12px;
+      border: none; border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0;
+      outline: none;
+    }
+    .search-select-list { max-height: 180px; overflow-y: auto; }
+    .search-select-item { padding: 4px 8px; cursor: pointer; font-size: 12px; }
+    .search-select-item:hover { background: var(--surface-hover); }
+    .search-select-item.selected { background: #dbeafe; }
+  </style>
+</head>
+<body>
+
+<div class="nav">
+  <div class="nav-tab active" data-panel="status">Status</div>
+  <div class="nav-tab" data-panel="settings">Settings</div>
+  <div class="nav-tab" data-panel="measurements">Measurements</div>
+</div>
+
+<!-- Status Panel -->
+<div id="panel-status" class="panel active">
+  <div class="card">
+    <h3>Connection</h3>
+    <div class="flex-between mb-8">
+      <span><span id="conn-dot" class="status-dot disconnected"></span><span id="conn-state">Loading...</span></span>
+    </div>
+    <div class="grid-2">
+      <div><label>InfluxDB URL</label><span id="status-url">-</span></div>
+      <div><label>Database</label><span id="status-db">-</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Write Metrics</h3>
+    <div class="grid-2">
+      <div><label>Points Buffered</label><span id="metric-buffered">0</span></div>
+      <div><label>Points Written</label><span id="metric-written">0</span></div>
+      <div><label>Points Dropped</label><span id="metric-dropped">0</span></div>
+      <div><label>Write Errors</label><span id="metric-errors">0</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Panel (rendered dynamically from properties) -->
+<div id="panel-settings" class="panel">
+  <div id="settings-container">
+    <div class="empty">Loading properties...</div>
+  </div>
+</div>
+
+<!-- Measurements Panel -->
+<div id="panel-measurements" class="panel">
+  <div id="meas-list-view">
+    <div class="flex-between mb-12">
+      <h2 style="font-size: 16px; font-weight: 600;">Measurements</h2>
+      <button class="btn btn-primary" onclick="addMeasurement()">+ Add Measurement</button>
+    </div>
+    <div class="card" style="padding:0;">
+      <table>
+        <thead><tr><th>Name</th><th>Fields</th><th>Tags</th><th>Readings</th><th>Status</th><th></th></tr></thead>
+        <tbody id="meas-table-body"></tbody>
+      </table>
+      <div id="meas-empty" class="empty">No measurements configured.</div>
+    </div>
+  </div>
+
+  <!-- Create Measurement View -->
+  <div id="meas-create" style="display:none;">
+    <span class="back-link" onclick="showMeasList()">&larr; Back to Measurements</span>
+    <h2 style="font-size:16px; font-weight:600; margin-bottom:12px;">New Measurement</h2>
+    <div class="card">
+      <label>Measurement Name <span style="color:var(--danger);">*</span></label>
+      <input type="text" id="create-meas-name" placeholder="e.g. battery, temperature, energy" oninput="validateMeasName()"/>
+      <div id="create-meas-error" class="error-text" style="display:none;"></div>
+      <p style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">
+        This becomes the InfluxDB measurement name. Spaces and commas are converted to underscores.
+      </p>
+      <button class="btn btn-primary" id="create-meas-btn" onclick="saveNewMeasurement()" disabled>Create Measurement</button>
+      <button class="btn btn-outline" onclick="showMeasList()" style="margin-left:6px;">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Edit Measurement View -->
+  <div id="meas-editor" style="display:none;">
+    <span class="back-link" onclick="showMeasList()">&larr; Back to Measurements</span>
+    <h2 id="meas-editor-title" style="font-size:16px; font-weight:600; margin-bottom:12px;"></h2>
+
+    <div class="card">
+      <h3>Schema</h3>
+      <p class="hint">Define the InfluxDB column names. Fields are numeric values (e.g. level, temperature). Tags are string labels for filtering (e.g. device_name, location).</p>
+      <div class="grid-2">
+        <div>
+          <label>Fields</label>
+          <div id="schema-fields" class="mb-8"></div>
+          <div class="flex gap-8">
+            <input type="text" id="new-field-name" placeholder="Field name" style="margin:0;flex:1;" oninput="this.classList.remove('input-error');this.title='';"/>
+            <button class="btn btn-outline btn-sm" onclick="addFieldDef()">Add</button>
+          </div>
+        </div>
+        <div>
+          <label>Tags</label>
+          <div id="schema-tags" class="mb-8"></div>
+          <div class="flex gap-8">
+            <input type="text" id="new-tag-name" placeholder="Tag name" style="margin:0;flex:1;" oninput="this.classList.remove('input-error');this.title='';"/>
+            <button class="btn btn-outline btn-sm" onclick="addTagDef()">Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Settings</h3>
+      <div class="grid-3">
+        <div>
+          <label>Write Interval</label>
+          <select id="meas-interval" onchange="updateMeasSettings()">
+            <option value="Default">Default</option>
+            <option value="10s">10s</option><option value="30s">30s</option>
+            <option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option>
+          </select>
+        </div>
+        <div>
+          <label>Dedup</label>
+          <select id="meas-dedup" onchange="updateMeasSettings()">
+            <option value="true">On</option><option value="false">Off</option>
+          </select>
+        </div>
+        <div>
+          <label>Enabled</label>
+          <select id="meas-enabled" onchange="updateMeasSettings()">
+            <option value="true">On</option><option value="false">Off</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between mb-8">
+        <h3 style="margin:0;">Readings</h3>
+        <div class="flex gap-8">
+          <input type="text" id="new-reading-label" placeholder="Reading label" style="margin:0;width:180px;" oninput="this.classList.remove('input-error');this.title='';"/>
+          <button class="btn btn-outline btn-sm" onclick="addReading()">Add Reading</button>
+        </div>
+      </div>
+      <p class="hint">Each reading maps one device's variables to the schema. Add a reading per device. Use <b>+ Device Tags</b> to auto-add device_name and room_name.</p>
+      <div id="readings-container"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// C4 REST API Client
+// ============================================================
+var gApiHost, gDriverId, gApiToken;
+
+(function() {
+  var p = {};
+  window.location.search.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,k,v) { p[k]=decodeURIComponent(v); });
+  gApiHost = p.apihost; gDriverId = p.driverid; gApiToken = p.apitoken;
+})();
+
+function api(method, path, body) {
+  if (!gApiHost) return Promise.resolve(null);
+  var opts = {
+    method: method,
+    headers: { 'Authorization': 'Bearer ' + gApiToken, 'Content-Type': 'application/json' }
+  };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch('https://' + gApiHost + path, opts).then(function(r) { return r.json(); }).catch(function(e) {
+    console.error('API error:', method, path, e);
+    return null;
+  });
+}
+
+// Send UIRequest command to driver
+function sendCommand(cmd, params) {
+  return api('POST', '/api/v1/items/' + gDriverId + '/commands', {
+    command: cmd,
+    tParams: { DATA: btoa(JSON.stringify(params || {})) },
+    async: false
+  });
+}
+
+// Read all properties
+function getProperties() { return api('GET', '/api/v1/items/' + gDriverId + '/properties'); }
+
+// Set a property value
+function setProperty(name, value) {
+  var props = {};
+  props[name] = value;
+  return api('POST', '/api/v1/items/' + gDriverId + '/properties', { properties: props });
+}
+
+// ============================================================
+// Socket.io for real-time updates
+// ============================================================
+var gSocket = null;
+
+async function initSocket() {
+  if (!gApiHost) return;
+  try {
+    var jwt = 'JWT=' + gApiToken;
+    var res = await fetch('https://' + gApiHost + '/socket.io/socket.io.js?' + jwt, {
+      headers: { 'Authorization': 'Bearer ' + gApiToken }
+    });
+    eval.call(window, await res.text());
+
+    gSocket = window.io.connect('https://' + gApiHost, {
+      forceNew: true, query: jwt, transports: ['polling', 'websocket']
+    });
+
+    await new Promise(function(resolve) { gSocket.once('connect', resolve); });
+    var engineId = gSocket.io.engine.id;
+    console.log('Socket connected:', engineId);
+
+    // Subscribe to datatoui
+    var sub = await api('GET', '/api/v1/items/' + gDriverId + '/datatoui?SubscriptionClient=' + engineId + '&coerce=false');
+    if (sub && sub.subscriptionId) {
+      gSocket.on(String(sub.subscriptionId), handleSocketEvent);
+      gSocket.emit('startSubscription', String(sub.subscriptionId));
+      console.log('Subscribed to datatoui:', sub.subscriptionId);
+    }
+
+    // Subscribe to property changes
+    var propSub = await api('GET', '/api/v1/items/' + gDriverId + '/properties?SubscriptionClient=' + engineId + '&coerce=false');
+    if (propSub && propSub.subscriptionId) {
+      gSocket.on(String(propSub.subscriptionId), handlePropertyEvent);
+      gSocket.emit('startSubscription', String(propSub.subscriptionId));
+    }
+  } catch (e) { console.error('Socket init error:', e); }
+}
+
+function handleSocketEvent(evt) {
+  var items = Array.isArray(evt) ? evt : [evt];
+  items.forEach(function(item) {
+    var dc = item.data ? item.data.devicecommand : null;
+    if (!dc || dc.command === 'LUA_OUTPUT') return;
+    var params = {};
+    if (dc.params && dc.params.param) {
+      var arr = Array.isArray(dc.params.param) ? dc.params.param : [dc.params.param];
+      arr.forEach(function(p) {
+        if (p && p.name) params[p.name] = (p.value && p.value.static !== undefined) ? p.value.static : (p.value || '');
+      });
+    }
+    handleDriverData(dc.command, params);
+  });
+}
+
+function handlePropertyEvent(evt) {
+  // Update individual property values in-place without re-rendering the DOM
+  var items = Array.isArray(evt) ? evt : [evt];
+  items.forEach(function(item) {
+    var dc = item.data ? item.data.devicecommand : (item.devicecommand || null);
+    if (!dc || dc.command !== 'UPDATE_PROPERTY') return;
+    var name = dc.name;
+    var value = dc.value;
+    var id = 'prop-' + String(name || '').replace(/\s/g, '-');
+    var el = document.getElementById(id);
+    // Only update if the element exists and isn't currently focused (user editing)
+    if (el && document.activeElement !== el) {
+      el.value = value;
+    }
+    // Also update gProperties cache
+    for (var i = 0; i < gProperties.length; i++) {
+      if (gProperties[i].name === name) { gProperties[i].value = value; break; }
+    }
+  });
+}
+
+function handleDriverData(cmd, params) {
+  try {
+    if (cmd === 'CONFIG_DATA') onConfigLoaded(JSON.parse(params.config || '{}'));
+    else if (cmd === 'STATUS_DATA') onStatusLoaded(JSON.parse(params.status || '{}'));
+    else if (cmd === 'SETTINGS_DATA') onSettingsLoaded(JSON.parse(params.settings || '{}'));
+    else if (cmd === 'DEVICES_DATA') onDevicesLoaded(JSON.parse(params.devices || '[]'));
+    else if (cmd === 'DEVICE_VARIABLES_DATA') onDeviceVariablesLoaded(params.deviceId, JSON.parse(params.variables || '[]'));
+  } catch (e) { console.error('handleDriverData:', cmd, e); }
+}
+
+// ============================================================
+// State
+// ============================================================
+var gConfig = {};
+var gDevices = [];
+var gDeviceVars = {};
+var gProperties = [];
+var gEditingMeas = null;
+
+// ============================================================
+// Navigation
+// ============================================================
+function updateHash() {
+  var panel = document.querySelector('.nav-tab.active');
+  var tab = panel ? panel.dataset.panel : 'status';
+  var hash = tab;
+  if (tab === 'measurements' && gEditingMeas) {
+    hash = 'measurements/' + encodeURIComponent(gEditingMeas);
+  }
+  history.replaceState(null, '', '#' + hash);
+}
+
+function switchTab(panelName) {
+  document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+  var tab = document.querySelector('.nav-tab[data-panel="'+panelName+'"]');
+  if (tab) tab.classList.add('active');
+  var panel = document.getElementById('panel-' + panelName);
+  if (panel) panel.classList.add('active');
+  if (panelName !== 'measurements') { gEditingMeas = null; showMeasList(); }
+  updateHash();
+}
+
+document.querySelectorAll('.nav-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() { switchTab(tab.dataset.panel); });
+});
+
+// Restore view from URL hash on load
+var gInitialHash = location.hash.replace('#', '');
+function restoreHash() {
+  if (!gInitialHash) return;
+  var parts = gInitialHash.split('/');
+  var tab = parts[0];
+  if (document.getElementById('panel-' + tab)) switchTab(tab);
+  if (tab === 'measurements' && parts[1]) {
+    var measName = decodeURIComponent(parts[1]);
+    gEditingMeas = measName;
+    // Config will auto-navigate when loaded via onConfigLoaded
+  }
+  gInitialHash = '';
+}
+restoreHash();
+
+// ============================================================
+// Init
+// ============================================================
+async function init() {
+  await initSocket();
+  loadProperties();
+  sendCommand('_GET_CONFIG');
+  sendCommand('_GET_STATUS');
+  sendCommand('_GET_DEVICES');
+  // Refresh status every 30s
+  setInterval(function() { sendCommand('_GET_STATUS'); }, 30000);
+}
+
+// ============================================================
+// Properties (dynamic rendering like Neeo Remote)
+// ============================================================
+var PROP_GROUPS = {
+  'Cloud': ['Automatic Updates', 'Update Channel'],
+  'Driver': ['Log Level', 'Log Mode'],
+  'InfluxDB Connection': ['InfluxDB URL', 'API Token', 'Database', 'Write Precision', 'Default Write Interval'],
+  'Buffer & Retry': ['Max Buffer Size', 'Outage Notification Threshold', 'Offline Buffer Size']
+};
+
+async function loadProperties() {
+  var data = await getProperties();
+  if (!data) return;
+  gProperties = Array.isArray(data) ? data : (data.properties || []);
+  renderProperties();
+}
+
+function renderProperties() {
+  var container = document.getElementById('settings-container');
+  if (!gProperties.length) { container.innerHTML = '<div class="empty">No properties found.</div>'; return; }
+
+  var byName = {};
+  gProperties.forEach(function(p) { byName[p.name] = p; });
+
+  var html = '';
+  for (var group in PROP_GROUPS) {
+    var props = PROP_GROUPS[group];
+    var groupHtml = '';
+    props.forEach(function(name) {
+      var p = byName[name];
+      if (!p) return;
+      delete byName[name];
+      groupHtml += renderProperty(p);
+    });
+    if (groupHtml) {
+      html += '<div class="card"><h3>' + esc(group) + '</h3>' + groupHtml + '</div>';
+    }
+  }
+
+  // Hide status-only properties that are shown in Status tab
+  var hideProps = {'Driver Status':1, 'Driver Version':1, 'Offline Buffer Size':1};
+
+  // Render any remaining ungrouped properties
+  var remaining = '';
+  for (var name in byName) {
+    var p = byName[name];
+    if (p.type === 'LABEL' || hideProps[name]) continue;
+    remaining += renderProperty(p);
+  }
+  if (remaining) {
+    html += '<div class="card"><h3>Other</h3>' + remaining + '</div>';
+  }
+
+  container.innerHTML = html;
+}
+
+function renderProperty(p) {
+  if (p.type === 'LABEL') return '';
+  var ro = p.readonly === true || p.readonly === 'true';
+  var id = 'prop-' + esc(p.name).replace(/\s/g, '-');
+
+  if (p.type === 'LIST' && !ro) {
+    var options = '';
+    var items = p.items ? (Array.isArray(p.items.item) ? p.items.item : (p.items.item ? [p.items.item] : [])) : [];
+    items.forEach(function(item) {
+      var val = typeof item === 'object' ? item.text : item;
+      options += '<option value="' + esc(val) + '"' + (val === p.value ? ' selected' : '') + '>' + esc(val) + '</option>';
+    });
+    return '<div style="margin-bottom:8px;"><label>' + esc(p.name) + '</label>' +
+      '<select id="' + id + '" onchange="onPropertyChange(\'' + esc(p.name) + '\',this.value)">' + options + '</select></div>';
+  }
+
+  var type = (p.name === 'API Token') ? 'password' : 'text';
+  return '<div style="margin-bottom:8px;"><label>' + esc(p.name) + '</label>' +
+    '<input type="' + type + '" id="' + id + '" value="' + esc(p.value || '') + '"' +
+    (ro ? ' readonly' : ' onblur="onPropertyChange(\'' + esc(p.name) + '\',this.value)"') + '/></div>';
+}
+
+function onPropertyChange(name, value) {
+  setProperty(name, value);
+}
+
+// Also update status when settings data arrives
+function onSettingsLoaded(s) { /* handled by properties now */ }
+
+// ============================================================
+// Status
+// ============================================================
+function onStatusLoaded(status) {
+  var dot = document.getElementById('conn-dot');
+  var state = document.getElementById('conn-state');
+  var cs = (status.connectionState || 'Disconnected').toLowerCase();
+  dot.className = 'status-dot ' + (cs === 'connected' ? 'connected' : cs === 'reconnecting' ? 'reconnecting' : 'disconnected');
+  state.textContent = status.connectionState || 'Disconnected';
+  document.getElementById('status-url').textContent = status.url || '-';
+  document.getElementById('status-db').textContent = status.database || '-';
+  document.getElementById('metric-buffered').textContent = status.pointsBuffered || '0';
+  document.getElementById('metric-written').textContent = status.pointsWritten || '0';
+  document.getElementById('metric-dropped').textContent = status.pointsDropped || '0';
+  document.getElementById('metric-errors').textContent = status.writeErrors || '0';
+}
+
+// ============================================================
+// Measurements
+// ============================================================
+function onConfigLoaded(config) {
+  gConfig = config || {};
+  renderMeasList();
+  if (gEditingMeas && gConfig[gEditingMeas]) {
+    document.getElementById('meas-list-view').style.display = 'none';
+    document.getElementById('meas-create').style.display = 'none';
+    document.getElementById('meas-editor').style.display = '';
+    renderMeasEditor(gEditingMeas);
+  }
+}
+
+function renderMeasList() {
+  var tbody = document.getElementById('meas-table-body');
+  var empty = document.getElementById('meas-empty');
+  var names = Object.keys(gConfig).sort();
+  if (!names.length) { tbody.innerHTML = ''; empty.style.display = ''; return; }
+  empty.style.display = 'none';
+  var html = '';
+  names.forEach(function(name) {
+    var m = gConfig[name];
+    var rc = Object.keys(m.readings || {}).length;
+    html += '<tr>' +
+      '<td><a href="#" onclick="editMeasurement(\'' + esc(name) + '\');return false;" style="color:var(--accent);font-weight:500;">' + esc(name) + '</a></td>' +
+      '<td>' + (m.fieldDefs||[]).map(function(f){return '<span class="chip chip-field">'+esc(f)+'</span> ';}).join('') + '</td>' +
+      '<td>' + (m.tagDefs||[]).map(function(t){return '<span class="chip chip-tag">'+esc(t)+'</span> ';}).join('') + '</td>' +
+      '<td>' + rc + '</td>' +
+      '<td><span class="chip '+(m.enabled!==false?'chip-on':'chip-off')+'">'+(m.enabled!==false?'On':'Off')+'</span></td>' +
+      '<td><button class="btn btn-danger btn-sm" onclick="deleteMeasurement(\''+esc(name)+'\')">Delete</button></td></tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+function addMeasurement() {
+  document.getElementById('meas-list-view').style.display = 'none';
+  document.getElementById('meas-create').style.display = '';
+  document.getElementById('create-meas-name').value = '';
+  document.getElementById('create-meas-name').focus();
+}
+
+function validateMeasName() {
+  var input = document.getElementById('create-meas-name');
+  var error = document.getElementById('create-meas-error');
+  var btn = document.getElementById('create-meas-btn');
+  var name = input.value.trim();
+  var sanitized = name.replace(/[\s,]/g, '_');
+
+  if (!name) {
+    input.className = ''; error.style.display = 'none'; btn.disabled = true;
+    return false;
+  }
+  if (gConfig[sanitized]) {
+    input.className = 'input-error';
+    error.textContent = 'Measurement "' + sanitized + '" already exists.';
+    error.style.display = ''; btn.disabled = true;
+    return false;
+  }
+  input.className = 'input-valid';
+  error.style.display = 'none'; btn.disabled = false;
+  return true;
+}
+
+function saveNewMeasurement() {
+  if (!validateMeasName()) return;
+  var name = document.getElementById('create-meas-name').value.trim();
+  sendCommand('_ADD_MEASUREMENT', { name: name });
+  document.getElementById('meas-create').style.display = 'none';
+  gEditingMeas = name.replace(/[\s,]/g, '_');
+}
+
+function deleteMeasurement(name) {
+  if (confirm('Delete measurement "' + name + '"?')) sendCommand('_DELETE_MEASUREMENT', { name: name });
+}
+
+function editMeasurement(name) {
+  gEditingMeas = name;
+  document.getElementById('meas-list-view').style.display = 'none';
+  document.getElementById('meas-create').style.display = 'none';
+  document.getElementById('meas-editor').style.display = '';
+  renderMeasEditor(name);
+  updateHash();
+}
+
+function showMeasList() {
+  gEditingMeas = null;
+  document.getElementById('meas-list-view').style.display = '';
+  document.getElementById('meas-editor').style.display = 'none';
+  document.getElementById('meas-create').style.display = 'none';
+  updateHash();
+}
+
+function renderMeasEditor(name) {
+  var m = gConfig[name]; if (!m) return;
+  document.getElementById('meas-editor-title').textContent = name;
+  document.getElementById('meas-interval').value = m.interval || 'Default';
+  document.getElementById('meas-dedup').value = m.dedup !== false ? 'true' : 'false';
+  document.getElementById('meas-enabled').value = m.enabled !== false ? 'true' : 'false';
+
+  var fh = (m.fieldDefs||[]).map(function(f) {
+    return '<span class="chip chip-field" style="margin:2px;">'+esc(f)+' <span style="cursor:pointer;opacity:0.5;" onclick="removeFieldDef(\''+esc(f)+'\')">&times;</span></span>';
+  }).join('') || '<span style="color:var(--text-muted)">None</span>';
+  document.getElementById('schema-fields').innerHTML = fh;
+
+  var th = (m.tagDefs||[]).map(function(t) {
+    return '<span class="chip chip-tag" style="margin:2px;">'+esc(t)+' <span style="cursor:pointer;opacity:0.5;" onclick="removeTagDef(\''+esc(t)+'\')">&times;</span></span>';
+  }).join('') || '<span style="color:var(--text-muted)">None</span>';
+  document.getElementById('schema-tags').innerHTML = th;
+
+  renderReadings(name, m);
+}
+
+function addSchemaItem(inputId, cmd, paramName) {
+  var v = document.getElementById(inputId);
+  var name = v.value.trim();
+  if (!name) { v.classList.add('input-error'); v.focus(); return; }
+  if (!gEditingMeas) return;
+  // Check for duplicates
+  var m = gConfig[gEditingMeas];
+  if (m) {
+    var all = (m.fieldDefs || []).concat(m.tagDefs || []);
+    if (all.indexOf(name) >= 0) { v.classList.add('input-error'); v.title = 'Already exists'; return; }
+  }
+  v.classList.remove('input-error'); v.title = '';
+  var params = { measurement: gEditingMeas }; params[paramName] = name;
+  sendCommand(cmd, params);
+  v.value = '';
+}
+function addFieldDef() { addSchemaItem('new-field-name', '_ADD_FIELD_DEF', 'name'); }
+function addTagDef() { addSchemaItem('new-tag-name', '_ADD_TAG_DEF', 'name'); }
+function removeFieldDef(n) { if(gEditingMeas) sendCommand('_REMOVE_FIELD_DEF',{measurement:gEditingMeas,name:n}); }
+function removeTagDef(n) { if(gEditingMeas) sendCommand('_REMOVE_TAG_DEF',{measurement:gEditingMeas,name:n}); }
+function updateMeasSettings() {
+  if (!gEditingMeas) return;
+  sendCommand('_UPDATE_MEAS_SETTINGS', {
+    measurement: gEditingMeas,
+    interval: document.getElementById('meas-interval').value,
+    dedup: document.getElementById('meas-dedup').value === 'true',
+    enabled: document.getElementById('meas-enabled').value === 'true'
+  });
+}
+
+function addReading() {
+  var v = document.getElementById('new-reading-label');
+  var label = v.value.trim();
+  if (!label) { v.classList.add('input-error'); v.focus(); return; }
+  var m = gConfig[gEditingMeas];
+  if (m && m.readings && m.readings[label]) { v.classList.add('input-error'); v.title = 'Already exists'; return; }
+  v.classList.remove('input-error'); v.title = '';
+  if (!gEditingMeas) return;
+  sendCommand('_ADD_READING', { measurement: gEditingMeas, label: label });
+  v.value = '';
+}
+
+// ============================================================
+// Readings
+// ============================================================
+function renderReadings(measName, meas) {
+  var container = document.getElementById('readings-container');
+  var readings = meas.readings || {};
+  var labels = Object.keys(readings).sort();
+  if (!labels.length) { container.innerHTML = '<div class="empty">No readings.</div>'; return; }
+
+  var allDefs = (meas.fieldDefs||[]).concat(meas.tagDefs||[]);
+  var html = '';
+  labels.forEach(function(label) {
+    var reading = readings[label];
+    var eid = escId(label);
+    html += '<div class="reading-card">';
+    // Reading header with device tags selector
+    html += '<div class="flex-between mb-8"><strong>'+esc(label)+'</strong><div class="flex gap-8">';
+    var dtId = 'dt_'+eid;
+    html += '<div class="search-select" id="dtss_'+eid+'" style="width:180px;">';
+    html += '<div class="search-select-trigger placeholder" onclick="openDeviceSearch(\'dt_'+eid+'\')" data-devid="" id="devin_dt_'+eid+'">+ Device Tags...</div>';
+    html += '<div class="search-select-popup"><input type="text" class="search-select-search" placeholder="Search..." oninput="filterDeviceSearch(\'dt_'+eid+'\',this.value)"/>';
+    html += '<div class="search-select-list" id="devlist_dt_'+eid+'"></div></div></div>';
+    html += '<select onchange="toggleReadingEnabled(\''+eid+'\',this.value)" style="margin:0;width:auto;padding:2px 6px;" title="Enable/disable this reading">';
+    html += '<option value="true"'+(reading.enabled!==false?' selected':'')+'>Enabled</option>';
+    html += '<option value="false"'+(reading.enabled===false?' selected':'')+'>Disabled</option></select>';
+    html += '<button class="btn btn-danger btn-sm" onclick="removeReading(\''+eid+'\')">Remove</button>';
+    html += '</div></div>';
+
+    allDefs.forEach(function(defName) {
+      var isField = (meas.fieldDefs||[]).indexOf(defName) >= 0;
+      var mapping = (reading.mappings||{})[defName] || {};
+      var source = mapping.source || '';
+      var mid = eid + '__' + escId(defName);
+
+      html += '<div class="mapping-row">';
+
+      // Col 1: Name chip
+      html += '<span class="chip '+(isField?'chip-field':'chip-tag')+'">'+esc(defName)+'</span>';
+
+      // Col 2: Source selector
+      html += '<select id="src_'+mid+'" onchange="onSourceChange(\''+eid+'\',\''+escId(defName)+'\')" style="margin:0;padding:2px;">';
+      html += '<option value="">--</option><option value="variable"'+(source==='variable'?' selected':'')+'>Variable</option>';
+      html += '<option value="literal"'+(source==='literal'?' selected':'')+'>Literal</option></select>';
+
+      // Col 3+4: Device & Variable (or Literal spanning both, or Not mapped spanning both)
+      if (source === 'variable') {
+        var selDevId = mapping.varId ? mapping.varId.split(':')[0] : '';
+        var selDevLabel = selDevId ? findDeviceLabel(selDevId) : '';
+        html += '<div class="search-select" id="devss_'+mid+'">';
+        html += '<div class="search-select-trigger'+(selDevId?'':' placeholder')+'" onclick="openDeviceSearch(\''+mid+'\')" data-devid="'+selDevId+'"';
+        html += ' id="devin_'+mid+'">'+esc(selDevLabel || 'Device...')+'</div>';
+        html += '<div class="search-select-popup"><input type="text" class="search-select-search" placeholder="Search..." oninput="filterDeviceSearch(\''+mid+'\',this.value)"/>';
+        html += '<div class="search-select-list" id="devlist_'+mid+'"></div></div></div>';
+        var selVarLabel = '';
+        if (selDevId && mapping.varId && gDeviceVars[selDevId]) {
+          var varParts = mapping.varId.split(':');
+          (gDeviceVars[selDevId]||[]).forEach(function(v) { if (String(v.id)===varParts[1]) selVarLabel = v.name; });
+        }
+        html += '<div class="search-select" id="varss_'+mid+'">';
+        html += '<div class="search-select-trigger'+(selVarLabel?'':' placeholder')+'" onclick="openVarSearch(\''+mid+'\')" data-varid="'+(mapping.varId||'')+'"';
+        html += ' id="varin_'+mid+'">'+esc(selVarLabel || 'Variable...')+'</div>';
+        html += '<div class="search-select-popup"><div class="search-select-list" id="varlist_'+mid+'"></div></div></div>';
+        if (selDevId && !gDeviceVars[selDevId]) sendCommand('_GET_DEVICE_VARIABLES',{deviceId:selDevId});
+      } else if (source === 'literal') {
+        html += '<input type="text" class="mapping-span2" id="lit_'+mid+'" value="'+esc(mapping.literal||'')+'" placeholder="Value" onchange="onLitChange(\''+eid+'\',\''+escId(defName)+'\')"/>';
+      } else {
+        html += '<span class="mapping-span2" style="color:var(--text-muted);font-size:11px;">Not mapped</span>';
+      }
+
+      // Col 4: Transform
+      html += '<input type="text" id="tfm_'+mid+'" value="'+esc(mapping.transform||'')+'" placeholder="Transform"';
+      html += ' oninput="onTransformInput(\''+mid+'\',\''+eid+'\',\''+escId(defName)+'\')"';
+      html += ' onchange="onTransformChange(\''+eid+'\',\''+escId(defName)+'\')"';
+      html += ' style="margin:0;padding:2px 6px;" title="e.g. value*100, device_name(value)"/>';
+
+      // Col 5: Live preview
+      var curVal = resolveCurrentValue(mapping);
+      var previewVal = curVal;
+      var previewErr = null;
+      if (curVal !== null && mapping.transform) {
+        var result = tryTransform(mapping.transform, curVal);
+        previewVal = result.value;
+        previewErr = result.error;
+      }
+      html += '<span id="preview_'+mid+'" class="mapping-preview" style="'+(previewErr?'color:var(--danger);':'color:var(--text-muted);')+'" title="'+(previewErr?esc(previewErr):(previewVal||''))+'">';
+      if (previewErr) {
+        html += '&#9888; error';
+      } else if (previewVal !== null) {
+        html += '= <b style="color:var(--text);">'+esc(previewVal)+'</b>';
+      }
+      html += '</span>';
+
+      html += '</div>';
+    });
+    html += '</div>';
+  });
+  container.innerHTML = html;
+}
+
+function buildDeviceList(sel) {
+  return gDevices.map(function(d) {
+    var label = d.displayName || d.name || ('Device ' + d.id);
+    return '<option value="'+d.id+'"'+(String(d.id)===String(sel)?' selected':'')+'>'+esc(label)+'</option>';
+  }).join('');
+}
+
+function findDeviceLabel(devId) {
+  for (var i = 0; i < gDevices.length; i++) {
+    if (String(gDevices[i].id) === String(devId)) return gDevices[i].displayName || gDevices[i].name || '';
+  }
+  return 'Device ' + devId;
+}
+
+function openDeviceSearch(mid) {
+  // Find container: devss_ for mapping rows, dtss_ for device tags
+  var ss = document.getElementById('devss_' + mid) || document.getElementById('dtss_' + mid.replace('dt_',''));
+  if (!ss) return;
+  var wasOpen = ss.classList.contains('open');
+  // Close all other open ones
+  document.querySelectorAll('.search-select.open').forEach(function(el) { el.classList.remove('open'); });
+  if (wasOpen) return;
+  ss.classList.add('open');
+  filterDeviceSearch(mid, '');
+  var searchInput = ss.querySelector('.search-select-search');
+  if (searchInput) { searchInput.value = ''; searchInput.focus(); }
+  setTimeout(function() {
+    document.addEventListener('click', function closeHandler(e) {
+      if (!ss.contains(e.target)) { ss.classList.remove('open'); document.removeEventListener('click', closeHandler); }
+    });
+  }, 0);
+}
+
+function filterDeviceSearch(mid, query) {
+  var list = document.getElementById('devlist_' + mid);
+  if (!list) return;
+  var q = (query || '').toLowerCase();
+  var selDevId = '';
+  var trigger = document.getElementById('devin_' + mid);
+  if (trigger) selDevId = trigger.dataset.devid || '';
+  var html = '';
+  gDevices.forEach(function(d) {
+    var label = d.displayName || d.name || ('Device ' + d.id);
+    if (q && label.toLowerCase().indexOf(q) < 0) return;
+    var cls = String(d.id) === selDevId ? ' selected' : '';
+    html += '<div class="search-select-item'+cls+'" onclick="selectDevice(\''+mid+'\',\''+d.id+'\',\''+esc(label).replace(/'/g,"\\'")+'\')">'+esc(label)+'</div>';
+  });
+  list.innerHTML = html || '<div class="search-select-item" style="color:var(--text-muted);">No matches</div>';
+}
+
+function selectDevice(mid, devId, label) {
+  var trigger = document.getElementById('devin_' + mid);
+  var ss = document.getElementById('devss_' + mid);
+  if (ss) ss.classList.remove('open');
+
+  // Device Tags dropdown (dt_ prefix)
+  if (mid.indexOf('dt_') === 0) {
+    var readingId = mid.substring(3);
+    onReadingDeviceTags(readingId, devId);
+    // Reset to placeholder after selection
+    if (trigger) { trigger.textContent = '+ Device Tags...'; trigger.dataset.devid = ''; trigger.classList.add('placeholder'); }
+    return;
+  }
+
+  if (trigger) { trigger.textContent = label; trigger.dataset.devid = devId; trigger.classList.remove('placeholder'); }
+  var parts = mid.split('__');
+  onDeviceSelect(parts[0], parts[1]);
+}
+
+function openVarSearch(mid) {
+  var ss = document.getElementById('varss_' + mid);
+  if (!ss) return;
+  var wasOpen = ss.classList.contains('open');
+  document.querySelectorAll('.search-select.open').forEach(function(el) { el.classList.remove('open'); });
+  if (wasOpen) return;
+  // Get device ID from the device trigger
+  var devTrigger = document.getElementById('devin_' + mid);
+  var devId = devTrigger ? devTrigger.dataset.devid : '';
+  if (!devId) return;
+  // Fetch variables if not cached, then retry
+  if (!gDeviceVars[devId]) {
+    sendCommand('_GET_DEVICE_VARIABLES', {deviceId: devId});
+    // Poll until loaded (max 3s)
+    var attempts = 0;
+    var poller = setInterval(function() {
+      attempts++;
+      if (gDeviceVars[devId] || attempts > 15) {
+        clearInterval(poller);
+        if (gDeviceVars[devId]) openVarSearch(mid);
+      }
+    }, 200);
+    return;
+  }
+  var varTrigger = document.getElementById('varin_' + mid);
+  var selVarId = varTrigger ? varTrigger.dataset.varid : '';
+  var list = document.getElementById('varlist_' + mid);
+  if (!list) return;
+  var html = '';
+  (gDeviceVars[devId]||[]).forEach(function(v) {
+    var vid = devId + ':' + v.id;
+    var cls = vid === selVarId ? ' selected' : '';
+    html += '<div class="search-select-item'+cls+'" onclick="selectVariable(\''+mid+'\',\''+vid+'\',\''+esc(v.name).replace(/'/g,"\\'")+'\')">'+esc(v.name)+'</div>';
+  });
+  list.innerHTML = html || '<div class="search-select-item" style="color:var(--text-muted);">No variables found</div>';
+  ss.classList.add('open');
+  setTimeout(function() {
+    document.addEventListener('click', function closeHandler(e) {
+      if (!ss.contains(e.target)) { ss.classList.remove('open'); document.removeEventListener('click', closeHandler); }
+    });
+  }, 0);
+}
+
+function selectVariable(mid, varId, label) {
+  var trigger = document.getElementById('varin_' + mid);
+  var ss = document.getElementById('varss_' + mid);
+  if (trigger) { trigger.textContent = label; trigger.dataset.varid = varId; trigger.classList.remove('placeholder'); }
+  if (ss) ss.classList.remove('open');
+  var parts = mid.split('__');
+  // Save the mapping
+  var tfm = document.getElementById('tfm_' + mid);
+  saveMapping(parts[0], parts[1], {source:'variable', varId:varId, transform: tfm ? tfm.value || null : null});
+}
+
+function onReadingDeviceTags(readingId, deviceId) {
+  if (!deviceId || !gEditingMeas) return;
+  sendCommand('_INCLUDE_DEVICE_TAGS', {
+    measurement: gEditingMeas,
+    reading: unescId(readingId),
+    deviceId: deviceId
+  });
+}
+
+// Client-side transform preview — resolves device_name/room_name from gDevices
+function tryTransform(expr, rawValue) {
+  if (!expr) return { value: rawValue, error: null };
+  try {
+    var value = isNaN(Number(rawValue)) ? rawValue : Number(rawValue);
+    var fn = new Function('value', 'map', 'device_name', 'room_name',
+      'return (' + expr + ');');
+    var result = fn(value,
+      function(t) { return t[String(rawValue)] !== undefined ? t[String(rawValue)] : rawValue; },
+      function(id) {
+        for (var i = 0; i < gDevices.length; i++) {
+          if (String(gDevices[i].id) === String(id)) return gDevices[i].name || String(id);
+        }
+        return String(id);
+      },
+      function(id) {
+        for (var i = 0; i < gDevices.length; i++) {
+          if (String(gDevices[i].id) === String(id)) return gDevices[i].roomName || String(id);
+        }
+        return String(id);
+      }
+    );
+    return { value: String(result), error: null };
+  } catch (e) {
+    return { value: null, error: e.message };
+  }
+}
+
+var _tfmTimers = {};
+function onTransformInput(mid, readingId, mappingId) {
+  clearTimeout(_tfmTimers[mid]);
+  _tfmTimers[mid] = setTimeout(function() {
+    var tfmEl = document.getElementById('tfm_' + mid);
+    var previewEl = document.getElementById('preview_' + mid);
+    if (!tfmEl || !previewEl) return;
+
+    var expr = tfmEl.value;
+    var m = gConfig[gEditingMeas]; if (!m) return;
+    var reading = (m.readings || {})[unescId(readingId)]; if (!reading) return;
+    var mapping = (reading.mappings || {})[unescId(mappingId)] || {};
+    var curVal = resolveCurrentValue(mapping);
+    if (curVal === null) curVal = '0'; // fallback for preview
+
+    if (!expr) {
+      tfmEl.style.borderColor = '';
+      tfmEl.title = '';
+      previewEl.innerHTML = curVal !== null ? '= <b style="color:var(--text);">'+esc(curVal)+'</b>' : '';
+      previewEl.style.color = 'var(--text-muted)';
+      return;
+    }
+
+    var result = tryTransform(expr, curVal);
+    if (result.error) {
+      tfmEl.style.borderColor = 'var(--danger)';
+      tfmEl.title = result.error;
+      previewEl.innerHTML = '<span style="cursor:help;" title="'+esc(result.error)+'">&#9888; '+esc(result.error.substring(0,30))+'</span>';
+      previewEl.style.color = 'var(--danger)';
+    } else {
+      tfmEl.style.borderColor = 'var(--success)';
+      tfmEl.title = '';
+      previewEl.innerHTML = '= <b style="color:var(--text);">'+esc(result.value)+'</b>';
+      previewEl.style.color = 'var(--text-muted)';
+    }
+  }, 300);
+}
+
+function buildVarOptions(devId, selVarId) {
+  var html = '<option value="">Variable...</option>';
+  (gDeviceVars[String(devId)]||[]).forEach(function(v) {
+    var vid = devId+':'+v.id;
+    html += '<option value="'+vid+'"'+(vid===selVarId?' selected':'')+'>'+esc(v.name)+'</option>';
+  });
+  return html;
+}
+
+function resolveCurrentValue(mapping) {
+  if (!mapping || !mapping.source) return null;
+  var raw = null;
+  if (mapping.source === 'literal') {
+    raw = mapping.literal;
+  } else if (mapping.source === 'variable' && mapping.varId) {
+    var parts = mapping.varId.split(':');
+    var vars = gDeviceVars[parts[0]] || [];
+    for (var i = 0; i < vars.length; i++) {
+      if (String(vars[i].id) === parts[1]) { raw = vars[i].value; break; }
+    }
+  }
+  if (raw === null || raw === undefined) return null;
+  return String(raw);
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function escId(s) { return String(s||'').replace(/[^a-zA-Z0-9_]/g,'_'); }
+function unescId(id) {
+  if (!gEditingMeas || !gConfig[gEditingMeas]) return id;
+  var m = gConfig[gEditingMeas];
+  for (var l in m.readings) { if (escId(l)===id) return l; }
+  var defs = (m.fieldDefs||[]).concat(m.tagDefs||[]);
+  for (var i=0;i<defs.length;i++) { if(escId(defs[i])===id) return defs[i]; }
+  return id;
+}
+
+function onSourceChange(rid, mid) {
+  var src = document.getElementById('src_'+rid+'__'+mid).value;
+  if (src) saveMapping(rid, mid, {source:src});
+}
+
+function onDeviceSelect(rid, mid) {
+  var k = rid + '__' + mid;
+  var trigger = document.getElementById('devin_' + k);
+  var devId = trigger ? trigger.dataset.devid : '';
+  if (!devId) return;
+  // Reset variable selection
+  var varTrigger = document.getElementById('varin_' + k);
+  if (varTrigger) { varTrigger.textContent = 'Variable...'; varTrigger.dataset.varid = ''; varTrigger.classList.add('placeholder'); }
+  if (!gDeviceVars[devId]) {
+    sendCommand('_GET_DEVICE_VARIABLES', {deviceId: devId});
+  }
+}
+
+function onVarChange(rid, mid) {
+  // Legacy — now handled by selectVariable
+}
+
+function onLitChange(rid, mid) {
+  var k = rid+'__'+mid;
+  var lit = document.getElementById('lit_'+k).value;
+  var tfm = document.getElementById('tfm_'+k).value;
+  saveMapping(rid, mid, {source:'literal',literal:lit,transform:tfm||null});
+}
+
+function onTransformChange(rid, mid) {
+  var k = rid+'__'+mid;
+  var tfm = document.getElementById('tfm_'+k).value;
+  var m = gConfig[gEditingMeas]; if(!m) return;
+  var reading = (m.readings||{})[unescId(rid)]; if(!reading) return;
+  var existing = (reading.mappings||{})[unescId(mid)] || {};
+  saveMapping(rid, mid, {source:existing.source||'variable', varId:existing.varId||null, literal:existing.literal||null, transform:tfm||null});
+}
+
+function saveMapping(rid, mid, mapping) {
+  if (!gEditingMeas) return;
+  var rl = unescId(rid), mn = unescId(mid);
+  var m = gConfig[gEditingMeas]; if(m) {
+    var r = (m.readings||{})[rl]; if(r) {
+      var ex = (r.mappings||{})[mn] || {};
+      if (mapping.transform===undefined) mapping.transform=ex.transform||null;
+      if (mapping.varId===undefined && mapping.source==='variable') mapping.varId=ex.varId||null;
+      if (mapping.literal===undefined && mapping.source==='literal') mapping.literal=ex.literal||null;
+    }
+  }
+  sendCommand('_SAVE_MAPPING', {measurement:gEditingMeas, reading:rl, name:mn, mapping:mapping});
+}
+
+function toggleReadingEnabled(rid, val) { if(gEditingMeas) sendCommand('_UPDATE_READING_ENABLED',{measurement:gEditingMeas,label:unescId(rid),enabled:val==='true'}); }
+function removeReading(rid) { if(gEditingMeas && confirm('Remove reading "'+unescId(rid)+'"?')) sendCommand('_REMOVE_READING',{measurement:gEditingMeas,label:unescId(rid)}); }
+
+// ============================================================
+// Devices
+// ============================================================
+function onDevicesLoaded(devices) {
+  gDevices = devices || [];
+  if (gEditingMeas && gConfig[gEditingMeas]) renderMeasEditor(gEditingMeas);
+}
+
+function onDeviceVariablesLoaded(deviceId, vars) {
+  gDeviceVars[String(deviceId)] = vars || [];
+  // Don't re-render — the variable dropdown populates on click via openVarSearch
+}
+
+// ============================================================
+// Boot
+// ============================================================
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+else init();
+</script>
+</body>
+</html>

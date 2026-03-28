@@ -104,4 +104,8 @@ return {
     ["ms"] = "ms",
     ["s"] = "s",
   },
+
+  --- Valid mapping source types.
+  --- @type table<number, string>
+  MAPPING_SOURCES = { "Variable", "Literal" },
 }

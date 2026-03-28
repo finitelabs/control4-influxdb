@@ -213,9 +213,10 @@ function GetDevice(deviceId, c4iNames)
       end
     end
     local displayName = device.deviceName
-    if not IsEmpty(device.roomName) then
+    if not IsEmpty(device.roomName) and device.roomName ~= device.deviceName then
       displayName = string.format("%s > %s", device.roomName, device.deviceName)
     end
+    displayName = string.format("%s (%d)", displayName, deviceIdInt)
     --- @type ExtendedDeviceDefinition
     return {
       driverFileName = device.driverFileName,
