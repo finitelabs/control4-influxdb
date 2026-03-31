@@ -322,11 +322,12 @@ end
 --- @param measurementName string
 --- @param tags table<string,string>
 --- @param fields table<string,{value:any, type:string}>
---- @param opts table  { interval:number, maxBuffer:number, dedup:boolean }
+--- @param opts table  { interval:number, maxBuffer:number, dedup:boolean, dedupKey:string|nil }
 --- @param timestampMs number|nil
 function InfluxWriter:enqueue(measurementName, tags, fields, opts, timestampMs)
   opts = opts or {}
-  local state = self:_getMeasurementState(measurementName, opts.interval, opts.maxBuffer, opts.dedup)
+  local stateKey = opts.dedupKey or measurementName
+  local state = self:_getMeasurementState(stateKey, opts.interval, opts.maxBuffer, opts.dedup)
 
   -- Build the line first (so we can check dedup before buffering)
   local line, err = InfluxWriter.buildLine(measurementName, tags, fields, timestampMs)
@@ -376,36 +377,36 @@ function InfluxWriter:enqueue(measurementName, tags, fields, opts, timestampMs)
     state.lastValues[fieldKey] = tostring(fieldDef.value)
   end
 
-  -- Arm flush timer if not already running
-  self:_armFlushTimer(measurementName, state)
+  -- Flush immediately (scheduling is handled by global interval timers)
+  self:_flushMeasurement(stateKey)
 
-  log:trace("InfluxWriter.enqueue: buffered point for '%s' (%d in buffer)", measurementName, #state.buffer)
+  log:trace("InfluxWriter.enqueue: buffered point for '%s' (%d in buffer)", stateKey, #state.buffer)
 end
 
 --- Arm (or re-arm) the flush timer for a measurement.
---- @param measurementName string
+--- @param stateKey string
 --- @param state table
-function InfluxWriter:_armFlushTimer(measurementName, state)
-  local timerName = "InfluxWriter_" .. measurementName
+function InfluxWriter:_armFlushTimer(stateKey, state)
+  local timerName = "InfluxWriter_" .. stateKey
   if state.timerName then
     return -- already armed
   end
 
   local intervalMs = (state.intervalSecs or constants.DEFAULT_WRITE_INTERVAL) * 1000
-  log:trace("InfluxWriter: arming flush timer for '%s' (%ds)", measurementName, state.intervalSecs)
+  log:trace("InfluxWriter: arming flush timer for '%s' (%ds)", stateKey, state.intervalSecs)
 
   state.timerName = timerName
   SetTimer(timerName, intervalMs, function()
     state.timerName = nil
-    self:_flushMeasurement(measurementName)
+    self:_flushMeasurement(stateKey)
   end)
 end
 
 --- Flush a single measurement's buffer to InfluxDB.
---- @param measurementName string
+--- @param stateKey string
 --- @param force boolean|nil  If true, flush even if writing in flight
-function InfluxWriter:_flushMeasurement(measurementName, force)
-  local state = self._measurements[measurementName]
+function InfluxWriter:_flushMeasurement(stateKey, force)
+  local state = self._measurements[stateKey]
   if not state or #state.buffer == 0 then
     return
   end
@@ -413,9 +414,9 @@ function InfluxWriter:_flushMeasurement(measurementName, force)
   -- Build URL from current config
   local cfg = self._getConfig()
   if not cfg or not cfg.url or cfg.url == "" or not cfg.database or cfg.database == "" then
-    log:warn("InfluxWriter: cannot flush '%s' — InfluxDB not configured", measurementName)
+    log:warn("InfluxWriter: cannot flush '%s' — InfluxDB not configured", stateKey)
     -- Re-arm so we retry later
-    self:_armFlushTimer(measurementName, state)
+    self:_armFlushTimer(stateKey, state)
     return
   end
 
@@ -444,7 +445,7 @@ function InfluxWriter:_flushMeasurement(measurementName, force)
 
   state.lastFlushTime = os.time()
 
-  log:info("InfluxWriter: flushing %d points for '%s' (%d remaining)", batchSize, measurementName, #state.buffer)
+  log:info("InfluxWriter: flushing %d points for '%s' (%d remaining)", batchSize, stateKey, #state.buffer)
 
   InfluxWriter.postBatch(url, cfg.token or "", batch)
     :next(function(result)
@@ -454,11 +455,6 @@ function InfluxWriter:_flushMeasurement(measurementName, force)
 
       if self._onConnected then
         pcall(self._onConnected, true)
-      end
-
-      -- If more data accumulated, re-arm for next interval
-      if #state.buffer > 0 then
-        self:_armFlushTimer(measurementName, state)
       end
     end)
     :next(nil, function(err)
@@ -483,19 +479,19 @@ function InfluxWriter:_flushMeasurement(measurementName, force)
 
         -- Schedule retry
         local delaySecs = err.retryAfter or constants.RETRY_INTERVALS[1]
-        log:info("InfluxWriter: scheduling retry for '%s' in %ds", measurementName, delaySecs)
-        local timerName = "InfluxWriter_" .. measurementName
+        log:info("InfluxWriter: scheduling retry for '%s' in %ds", stateKey, delaySecs)
+        local timerName = "InfluxWriter_" .. stateKey
         state.timerName = timerName
         SetTimer(timerName, delaySecs * 1000, function()
           state.timerName = nil
-          self:_flushMeasurement(measurementName)
+          self:_flushMeasurement(stateKey)
         end)
       else
         -- Permanent error — drop the batch, log it
         log:error(
           "InfluxWriter: dropping %d points for '%s' (permanent error: %s)",
           batchSize,
-          measurementName,
+          stateKey,
           err.errMsg or "unknown"
         )
         self._metrics.pointsDropped = self._metrics.pointsDropped + batchSize
@@ -503,11 +499,6 @@ function InfluxWriter:_flushMeasurement(measurementName, force)
 
         if self._onConnected then
           pcall(self._onConnected, false)
-        end
-
-        -- Re-arm if there's more data
-        if #state.buffer > 0 then
-          self:_armFlushTimer(measurementName, state)
         end
       end
     end)
