@@ -43,12 +43,13 @@ automatic offline buffering and retry.
   <!-- #endif -->
   - [Driver Installation](#driver-installation)
   - [Driver Setup](#driver-setup)
+    - [Driver Tabs](#driver-tabs)
+      - [Settings](#settings)
     - [Driver Properties](#driver-properties)
       - [Cloud Settings](#cloud-settings)
       - [Driver Settings](#driver-settings)
       - [InfluxDB Settings](#influxdb-settings)
       - [Offline Buffer & Retry](#offline-buffer--retry)
-      - [Measurement Configuration](#measurement-configuration)
     - [Driver Actions](#driver-actions)
 - [Programming](#programming)
   - [Events](#events)
@@ -115,9 +116,7 @@ is an outline of the basic steps for your convenience.
    all `.c4z` files.
 3. Use the "Search" tab to find the "Influxdb" driver and add it to your
    project.
-
-   ![Search Drivers](images/search-drivers.png)
-
+   <br><img alt="Search Drivers" src="./images/search-drivers.png" width="300"/>
 4. Select the newly added driver in the "System Design" tab. You will notice
    that the `Cloud Status` reflects the license state. If you have purchased a
    license it will show `License Activated`, otherwise `Trial Running` and
@@ -142,9 +141,7 @@ is an outline of the basic steps for your convenience.
    all `.c4z` files.
 3. Use the "Search" tab to find the "Influxdb" driver and add it to your
    project.
-
-   ![Search Drivers](images/search-drivers.png)
-
+   <br><img alt="Search Drivers" src="./images/search-drivers.png" width="300"/>
 4. Configure the [InfluxDB Settings](#influxdb-settings) with the connection
    information for your InfluxDB instance. The
    [`Driver Status`](#driver-status-read-only) will display `Connected`
@@ -155,7 +152,107 @@ is an outline of the basic steps for your convenience.
 
 <!-- #endif -->
 
+<div style="page-break-after: always"></div>
+
 ## Driver Setup
+
+### Driver Tabs
+
+Additional tabs shown while in the
+[System Design mode](https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/system_design_view.htm),
+next to the "Properties", "Actions", "Documentation", and "Lua" tabs.
+
+#### Settings
+
+The Settings tab contains three views:
+
+##### Status
+
+Displays the current connection status and write metrics.
+
+<img alt="Status" src="./images/ui-status.png" width="500"/>
+
+1. **Connection** - shows the connection state, InfluxDB URL, and database name.
+2. **Write Metrics** - points buffered, written, dropped, and write errors.
+
+<div style="page-break-after: always"></div>
+
+##### Settings
+
+Displays the driver properties in a grouped layout. See
+[Driver Properties](#driver-properties) for details on each setting.
+
+<img alt="Settings" src="./images/ui-settings.png" width="500"/>
+
+<div style="page-break-after: always"></div>
+
+##### Measurements
+
+Configure measurements, schemas, and per-device readings.
+
+<img alt="Measurements" src="./images/ui-measurements.png" width="500"/>
+
+1. **+ Add Measurement** - create a new measurement (the name becomes the
+   InfluxDB table name)
+2. **Measurement name** - click to open the editor. The table shows configured
+   fields, tags, reading count, and status at a glance.
+3. **Delete** - remove the measurement and all its readings
+
+<div style="page-break-after: always"></div>
+
+##### Measurement Editor
+
+Click a measurement name in the list to open the editor. The editor lets you
+define the schema, configure write settings, and map device variables to each
+column.
+
+<img alt="Measurement Editor" src="./images/ui-measurement-editor.png" width="500"/>
+
+1. **Back to Measurements** - return to the list view
+2. **Schema** - define the InfluxDB columns. Add **fields** (numeric data like
+   `level`, `temperature`) and **tags** (string labels like `device_name`,
+   `room_name`). Use the input boxes and **Add** buttons to create them.
+3. **Settings** - **Write Interval** controls how often data is sent (use
+   `Default` to inherit the global interval). **Dedup** skips writes when values
+   haven't changed. **Enabled** toggles data collection.
+4. **Readings** - each reading represents one device's data mapped to this
+   measurement's schema. Add one reading per device you want to log.
+5. **Add Reading** - enter a label and click to add a new reading
+6. **Reading card** - shows the reading label, **+ Device Tags** shortcut
+   (auto-populates `device_name` and `room_name` from the device ID),
+   **Enabled** toggle, and **Remove** button
+7. **Mapping row** - one row per schema column. Each row has:
+   - **Name** - the field or tag from the schema (blue = field, green = tag)
+   - **Source** - `Variable` (from a device) or `Literal` (a fixed value)
+   - **Device** - searchable picker for the Control4 device (Variable only)
+   - **Variable** - the device variable to read (Variable only)
+   - **Transform** - optional Lua expression (see [Transforms](#transforms))
+   - **Preview** - live result evaluated on the controller
+
+<div style="page-break-after: always"></div>
+
+##### Transforms
+
+Transforms are standard Lua expressions. The raw value is available as `value`.
+
+| Function             | Description                           | Example                             |
+| -------------------- | ------------------------------------- | ----------------------------------- |
+| `device_name(value)` | Resolve device ID to its display name | `850` &rarr; `Entry Door Lock`      |
+| `room_name(value)`   | Resolve device ID to its room name    | `850` &rarr; `1-Car Garage`         |
+| `map({key = val})`   | Map string values to numbers          | `map({normal = 100, warning = 30})` |
+| `c2f(value)`         | Celsius to Fahrenheit                 | `20` &rarr; `68`                    |
+| `f2c(value)`         | Fahrenheit to Celsius                 | `68` &rarr; `20`                    |
+
+You can also use any Lua math expression:
+
+- `value * 100` - scale a value
+- `math.floor(value)` - round down
+- `tonumber(value) or 0` - ensure numeric
+
+> **Note:** Transform expressions use standard Lua syntax. Table constructors
+> use `=` not `:` (e.g., `map({normal = 100})` not `map({"normal": 100})`).
+
+<div style="page-break-after: always"></div>
 
 ### Driver Properties
 
@@ -242,58 +339,6 @@ this duration. Default is `5m`.
 ##### Offline Buffer Size (read-only)
 
 Displays the current number of data points in the offline buffer.
-
-##### Connection State (read-only)
-
-Displays the current connection state (`Connected`, `Disconnected`, or
-`Reconnecting`).
-
-#### Measurement Configuration
-
-##### Add Measurement
-
-Enter a measurement name and press **Set** to create it. The field clears
-automatically after the measurement is created.
-
-##### Remove Measurement
-
-Select a measurement to remove. Hidden when no measurements exist.
-
-##### Configure Measurement
-
-Select a measurement to configure. When a measurement is selected, the
-configuration properties below become visible. Hidden when no measurements
-exist.
-
-##### Add Field
-
-Select a Control4 variable to add as a field (numeric data) to the currently
-selected measurement.
-
-##### Remove Field
-
-Select a field variable to remove from the currently selected measurement.
-Hidden when no fields are configured.
-
-##### Add Tag
-
-Select a Control4 variable to add as a tag (metadata/label) to the currently
-selected measurement.
-
-##### Remove Tag
-
-Select a tag variable to remove from the currently selected measurement. Hidden
-when no tags are configured.
-
-##### Measurement Write Interval [ **_Default_** | 10s | 30s | 1m | 5m | 15m ]
-
-Sets the write interval for the selected measurement. Use `Default` to inherit
-the global **Default Write Interval**. Default is `Default`.
-
-##### Measurement Enabled [ **_On_** | Off ]
-
-Enables or disables data collection for the selected measurement. Default is
-`On`.
 
 ### Driver Actions
 
