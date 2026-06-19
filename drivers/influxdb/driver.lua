@@ -633,6 +633,176 @@ function EC.ClearOfflineBuffer()
   end
 end
 
+---------------------------------------------------------------------------
+-- Auto Configure (one click measurement discovery)
+---------------------------------------------------------------------------
+-- Builds tv_usage / light_usage / security_status from LIVE device discovery.
+-- Only the controller can resolve a variable NAME to the numeric variable id
+-- that subscriptions require (varId = "deviceId:variableId"), so this must run
+-- on the controller rather than from any offline tool.
+
+local AUTO = {
+  LIGHT_ON    = { "LOAD_ON" },
+  LIGHT_LEVEL = { "LIGHT_BRIGHTNESS_TARGET_PERCENT", "LIGHT_LEVEL" },
+  ROOM_SOURCE = { "CURRENT_SELECTION", "CURRENT_SELECTED_DEVICE", "CURRENT_VIDEO_DEVICE" },
+  SECURITY    = { "PARTITION_STATE", "SECURITY_STATE", "ARMED_STATE", "ARM_STATE", "DISARM_STATE" },
+}
+local AUTO_T_ONOFF  = 'tostring(value):lower() == "true" and 1 or 0'
+local AUTO_T_LEVEL  = 'tonumber(value) or 0'
+local AUTO_T_POWER  = 'tonumber(value) and tonumber(value) > 0 and 1 or 0'
+local AUTO_T_SOURCE = 'device_name(value)'
+local AUTO_T_ARMED  =
+  'map({Disarmed = 0, ["Armed Home"] = 1, ["Armed Stay"] = 1, ["Armed Away"] = 2, Armed = 1, Home = 1, Stay = 1, Away = 2}) or (tonumber(value) or 0)'
+
+--- Build name(upper) -> numeric variable id for one device.
+--- @param devId number
+--- @return table<string, number>
+local function autoVarIndex(devId)
+  local index = {}
+  local ok, vars = pcall(C4.GetDeviceVariables, C4, devId)
+  if ok and type(vars) == "table" then
+    for vid, info in pairs(vars) do
+      if info and info.name then
+        index[string.upper(info.name)] = tonumber(vid)
+      end
+    end
+  end
+  return index
+end
+
+--- First matching variable id from a list of candidate names.
+local function autoFirst(index, names)
+  for _, n in ipairs(names) do
+    local vid = index[string.upper(n)]
+    if vid then
+      return vid
+    end
+  end
+  return nil
+end
+
+local function autoCount(t)
+  local n = 0
+  for _ in pairs(t) do
+    n = n + 1
+  end
+  return n
+end
+
+--- Discover devices and build the full measurements config by convention.
+--- @return table config
+local function buildAutoConfig()
+  local site = Properties["Site"]
+  if IsEmpty(site) then
+    site = "home"
+  end
+
+  local lights, tvs, sec = {}, {}, {}
+  local devices = C4:GetDevices() or {}
+  for id, dev in pairs(devices) do
+    local devId = tonumber(id)
+    if devId then
+      local name = dev.deviceName or ("Device " .. tostring(devId))
+      local room = dev.roomName or ""
+      local label = name .. " [" .. tostring(devId) .. "]"
+      local idx = autoVarIndex(devId)
+
+      local onVid = autoFirst(idx, AUTO.LIGHT_ON)
+      local srcVid = autoFirst(idx, AUTO.ROOM_SOURCE)
+      local secVid = autoFirst(idx, AUTO.SECURITY)
+
+      if onVid then
+        local mappings = {
+          is_on = { source = "variable", varId = devId .. ":" .. onVid, transform = AUTO_T_ONOFF },
+          device_name = { source = "literal", literal = name },
+          room_name = { source = "literal", literal = room },
+          site = { source = "literal", literal = site },
+        }
+        local lvlVid = autoFirst(idx, AUTO.LIGHT_LEVEL)
+        if lvlVid then
+          mappings.level = { source = "variable", varId = devId .. ":" .. lvlVid, transform = AUTO_T_LEVEL }
+        end
+        lights[label] = { enabled = true, mappings = mappings }
+        log:debug("AutoConfigure: light '%s' (dev %d)", name, devId)
+      elseif srcVid then
+        tvs[label] = {
+          enabled = true,
+          mappings = {
+            power_on = { source = "variable", varId = devId .. ":" .. srcVid, transform = AUTO_T_POWER },
+            source_name = { source = "variable", varId = devId .. ":" .. srcVid, transform = AUTO_T_SOURCE },
+            room_name = { source = "literal", literal = (not IsEmpty(room)) and room or name },
+            display_name = { source = "literal", literal = name },
+            site = { source = "literal", literal = site },
+          },
+        }
+        log:debug("AutoConfigure: room/tv '%s' (dev %d)", name, devId)
+      elseif secVid then
+        sec[label] = {
+          enabled = true,
+          mappings = {
+            armed = { source = "variable", varId = devId .. ":" .. secVid, transform = AUTO_T_ARMED },
+            panel_name = { source = "literal", literal = name },
+            site = { source = "literal", literal = site },
+          },
+        }
+        log:debug("AutoConfigure: security '%s' (dev %d)", name, devId)
+      end
+    end
+  end
+
+  log:info(
+    "AutoConfigure discovered: %d lights, %d rooms/tvs, %d security (site=%s)",
+    autoCount(lights),
+    autoCount(tvs),
+    autoCount(sec),
+    site
+  )
+
+  return {
+    light_usage = {
+      fieldDefs = { "is_on", "level" },
+      tagDefs = { "site", "device_name", "room_name" },
+      interval = "5m",
+      enabled = true,
+      dedup = false,
+      readings = lights,
+    },
+    tv_usage = {
+      fieldDefs = { "power_on" },
+      tagDefs = { "site", "room_name", "display_name", "source_name" },
+      interval = "1m",
+      enabled = true,
+      dedup = false,
+      readings = tvs,
+    },
+    security_status = {
+      fieldDefs = { "armed" },
+      tagDefs = { "site", "panel_name" },
+      interval = "5m",
+      enabled = true,
+      dedup = false,
+      readings = sec,
+    },
+  }
+end
+
+--- Auto Configure Measurements action. One click: discover devices live and
+--- apply tv_usage / light_usage / security_status. Dedup is off so the interval
+--- acts as a heartbeat (on time = sample count * interval).
+function EC.Auto_Configure()
+  log:info("Action: Auto Configure Measurements")
+  local config = buildAutoConfig()
+  local applied = 0
+  for measName, measConfig in pairs(config) do
+    measManager:applyMeasurementConfig(measName, measConfig, subEngine, influxWriter)
+    applied = applied + 1
+  end
+  if subEngine then
+    subEngine:restartIntervalTimers()
+  end
+  log:print("Auto Configure applied %d measurements", applied)
+end
+
 --#ifndef DRIVERCENTRAL
 --- Update the driver from the GitHub repository.
 --- @param forceUpdate? boolean Force the update even if the driver is up to date.
