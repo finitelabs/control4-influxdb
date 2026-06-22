@@ -641,18 +641,36 @@ end
 -- that subscriptions require (varId = "deviceId:variableId"), so this must run
 -- on the controller rather than from any offline tool.
 
+-- Variable names confirmed from live lab discovery (Fishers project).
 local AUTO = {
-  LIGHT_ON    = { "LOAD_ON" },
-  LIGHT_LEVEL = { "LIGHT_BRIGHTNESS_TARGET_PERCENT", "LIGHT_LEVEL" },
-  ROOM_SOURCE = { "CURRENT_SELECTION", "CURRENT_SELECTED_DEVICE", "CURRENT_VIDEO_DEVICE" },
-  SECURITY    = { "PARTITION_STATE", "SECURITY_STATE", "ARMED_STATE", "ARM_STATE", "DISARM_STATE" },
+  SECURITY    = { "PARTITION_STATE" },
+  LIGHT_ON    = { "LIGHT_STATE" },
+  LIGHT_LEVEL = { "BRIGHTNESS PERCENT", "BRIGHTNESS TARGET PERCENT", "PRESET_LEVEL" },
+  TV_POWER    = { "POWER_STATE" },
+  TV_INPUT    = { "CURRENT_INPUT" },
 }
-local AUTO_T_ONOFF  = 'tostring(value):lower() == "true" and 1 or 0'
+-- on/off robust to number (level>0), "On"/"Off", or "true"/"false".
+local AUTO_T_ONOFF  = '(function() local n = tonumber(value); if n then return n > 0 and 1 or 0 end; local v = tostring(value):lower(); return (v == "on" or v == "true") and 1 or 0 end)()'
 local AUTO_T_LEVEL  = 'tonumber(value) or 0'
-local AUTO_T_POWER  = 'tonumber(value) and tonumber(value) > 0 and 1 or 0'
-local AUTO_T_SOURCE = 'device_name(value)'
+local AUTO_T_SOURCE = 'tostring(value)'
+-- Guaranteed numeric: DISARM* -> 0, *AWAY -> 2, any other ARM* -> 1, else 0.
+-- (map() returns the raw value on no-match, so do not rely on "map(...) or 0".)
 local AUTO_T_ARMED  =
-  'map({Disarmed = 0, ["Armed Home"] = 1, ["Armed Stay"] = 1, ["Armed Away"] = 2, Armed = 1, Home = 1, Stay = 1, Away = 2}) or (tonumber(value) or 0)'
+  'tostring(value):upper():find("DISARM") and 0 or (tostring(value):upper():find("AWAY") and 2 or (tostring(value):upper():find("ARM") and 1 or 0))'
+
+-- Service intelligence: fault catalog (Phase 1). One device_faults reading per
+-- (device, variable) found. severity/text/alert flag are static per code and live
+-- here / in the report engine, NOT in the time series. _BOOL variants preferred.
+local FAULT_CATALOG = {
+  { var = "OVER_TEMPERATURE",       subsystem = "lighting", code = "load_overtemp",  rule = "bool" },
+  { var = "SHORT_CIRCUIT_DETECTED", subsystem = "lighting", code = "load_short",     rule = "bool" },
+  { var = "OVER_RATED_WATTAGE",     subsystem = "lighting", code = "load_overwatt",  rule = "bool" },
+  { var = "UPS_POWER_LOST_BOOL",    subsystem = "power",    code = "ups_on_battery", rule = "bool" },
+  { var = "TROUBLE_TYPE",           subsystem = "security", code = "sec_trouble",    rule = "nonempty" },
+  { var = "LAST_ARM_FAILED",        subsystem = "security", code = "sec_arm_failed", rule = "nonempty" },
+}
+local FAULT_T_BOOL     = '(function() local n = tonumber(value); if n then return n > 0 and 1 or 0 end; local v = tostring(value):lower(); return (v == "true" or v == "yes" or v == "on") and 1 or 0 end)()'
+local FAULT_T_NONEMPTY = '(function() local v = tostring(value):lower(); return (v ~= "" and v ~= "none" and v ~= "0" and v ~= "false") and 1 or 0 end)()'
 
 --- Build name(upper) -> numeric variable id for one device.
 --- @param devId number
@@ -697,7 +715,7 @@ local function buildAutoConfig()
     site = "home"
   end
 
-  local lights, tvs, sec = {}, {}, {}
+  local lights, tvs, sec, faults = {}, {}, {}, {}
   local devices = C4:GetDevices() or {}
   for id, dev in pairs(devices) do
     local devId = tonumber(id)
@@ -706,14 +724,30 @@ local function buildAutoConfig()
       local room = dev.roomName or ""
       local label = name .. " [" .. tostring(devId) .. "]"
       local idx = autoVarIndex(devId)
+      local vnames = {}
+      for vn in pairs(idx) do
+        vnames[#vnames + 1] = vn
+      end
+      log:debug("AutoConfigure scan dev %d '%s' [%s] vars: %s", devId, name, room, table.concat(vnames, ", "))
 
-      local onVid = autoFirst(idx, AUTO.LIGHT_ON)
-      local srcVid = autoFirst(idx, AUTO.ROOM_SOURCE)
       local secVid = autoFirst(idx, AUTO.SECURITY)
+      local lightVid = autoFirst(idx, AUTO.LIGHT_ON)
+      local powerVid = autoFirst(idx, AUTO.TV_POWER)
+      local inputVid = autoFirst(idx, AUTO.TV_INPUT)
 
-      if onVid then
+      if secVid then
+        sec[label] = {
+          enabled = true,
+          mappings = {
+            armed = { source = "variable", varId = devId .. ":" .. secVid, transform = AUTO_T_ARMED },
+            panel_name = { source = "literal", literal = name },
+            site = { source = "literal", literal = site },
+          },
+        }
+        log:debug("AutoConfigure: security '%s' (dev %d)", name, devId)
+      elseif lightVid then
         local mappings = {
-          is_on = { source = "variable", varId = devId .. ":" .. onVid, transform = AUTO_T_ONOFF },
+          is_on = { source = "variable", varId = devId .. ":" .. lightVid, transform = AUTO_T_ONOFF },
           device_name = { source = "literal", literal = name },
           room_name = { source = "literal", literal = room },
           site = { source = "literal", literal = site },
@@ -724,37 +758,47 @@ local function buildAutoConfig()
         end
         lights[label] = { enabled = true, mappings = mappings }
         log:debug("AutoConfigure: light '%s' (dev %d)", name, devId)
-      elseif srcVid then
+      elseif powerVid and inputVid then
         tvs[label] = {
           enabled = true,
           mappings = {
-            power_on = { source = "variable", varId = devId .. ":" .. srcVid, transform = AUTO_T_POWER },
-            source_name = { source = "variable", varId = devId .. ":" .. srcVid, transform = AUTO_T_SOURCE },
+            power_on = { source = "variable", varId = devId .. ":" .. powerVid, transform = AUTO_T_ONOFF },
+            source_name = { source = "variable", varId = devId .. ":" .. inputVid, transform = AUTO_T_SOURCE },
             room_name = { source = "literal", literal = (not IsEmpty(room)) and room or name },
             display_name = { source = "literal", literal = name },
             site = { source = "literal", literal = site },
           },
         }
-        log:debug("AutoConfigure: room/tv '%s' (dev %d)", name, devId)
-      elseif secVid then
-        sec[label] = {
-          enabled = true,
-          mappings = {
-            armed = { source = "variable", varId = devId .. ":" .. secVid, transform = AUTO_T_ARMED },
-            panel_name = { source = "literal", literal = name },
-            site = { source = "literal", literal = site },
-          },
-        }
-        log:debug("AutoConfigure: security '%s' (dev %d)", name, devId)
+        log:debug("AutoConfigure: tv '%s' (dev %d)", name, devId)
+      end
+      -- Orthogonal fault pass: a device can be a usage device AND a fault source.
+      for _, f in ipairs(FAULT_CATALOG) do
+        local fvid = idx[string.upper(f.var)]
+        if fvid then
+          local xf = (f.rule == "nonempty") and FAULT_T_NONEMPTY or FAULT_T_BOOL
+          faults[label .. "::" .. f.code] = {
+            enabled = true,
+            mappings = {
+              fault_active = { source = "variable", varId = devId .. ":" .. fvid, transform = xf },
+              fault_code = { source = "literal", literal = f.code },
+              subsystem = { source = "literal", literal = f.subsystem },
+              device_name = { source = "literal", literal = name },
+              room_name = { source = "literal", literal = room },
+              site = { source = "literal", literal = site },
+            },
+          }
+          log:debug("AutoConfigure: fault '%s' on '%s' (dev %d)", f.code, name, devId)
+        end
       end
     end
   end
 
   log:info(
-    "AutoConfigure discovered: %d lights, %d rooms/tvs, %d security (site=%s)",
+    "AutoConfigure discovered: %d lights, %d rooms/tvs, %d security, %d faults (site=%s)",
     autoCount(lights),
     autoCount(tvs),
     autoCount(sec),
+    autoCount(faults),
     site
   )
 
@@ -782,6 +826,14 @@ local function buildAutoConfig()
       enabled = true,
       dedup = false,
       readings = sec,
+    },
+    device_faults = {
+      fieldDefs = { "fault_active" },
+      tagDefs = { "site", "device_name", "room_name", "subsystem", "fault_code" },
+      interval = "5m",
+      enabled = true,
+      dedup = false,
+      readings = faults,
     },
   }
 end
