@@ -304,7 +304,7 @@ can file an issue on GitHub:
 
 <div style="page-break-after: always"></div>
 
-# <span style="color:#109EFF">Changelog</span>
+# <span style="color:#020A47">Changelog</span>
 
 ## v20260331 - 2026-03-31
 

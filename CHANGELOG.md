@@ -1,4 +1,4 @@
-# <span style="color:#109EFF">Changelog</span>
+# <span style="color:#020A47">Changelog</span>
 
 <!-- prettier-ignore-start -->
 [//]: # "## v[Version] - YYY-MM-DD"
