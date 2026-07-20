@@ -9,3 +9,5 @@ readme_driver_slug: influxdb
 readme_build: oss
 primary_color: "#020A47"
 vendor_modules: json deferred drivers-common-public xml
+
+lib_modules: bindings conditionals events http lru persist values
