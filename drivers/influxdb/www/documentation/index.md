@@ -1,4 +1,4 @@
-[copyright]: # "Copyright 2026 Finite Labs, LLC. All rights reserved."
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
 
 <style>
 @media print {
@@ -15,7 +15,7 @@
 
 <img alt="InfluxDB Data Logger" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#020A47">Overview</span>
 
@@ -57,7 +57,9 @@ automatic offline buffering and retry.
   - [Conditionals](#conditionals)
   <!-- #ifdef DRIVERCENTRAL -->
 - [Developer Information](#developer-information)
+
 <!-- #endif -->
+
 - [Support](#support)
 - [Changelog](#changelog)
 
@@ -86,7 +88,7 @@ automatic offline buffering and retry.
 
 # <span style="color:#020A47">Installer Setup</span>
 
- <!-- #ifdef DRIVERCENTRAL -->
+<!-- #ifdef DRIVERCENTRAL -->
 
 ## DriverCentral Cloud Setup
 
@@ -111,24 +113,24 @@ is an outline of the basic steps for your convenience.
 
 1. Download the latest `control4-influxdb.zip` from
    [DriverCentral](https://drivercentral.io/platforms/control4-drivers/utility/influxdb).
-2. Extract and
+1. Extract and
    [install](https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)
    all `.c4z` files.
-3. Use the "Search" tab to find the "Influxdb" driver and add it to your
+1. Use the "Search" tab to find the "Influxdb" driver and add it to your
    project.
    <br><img alt="Search Drivers" src="./images/search-drivers.png" width="300"/>
-4. Select the newly added driver in the "System Design" tab. You will notice
+1. Select the newly added driver in the "System Design" tab. You will notice
    that the `Cloud Status` reflects the license state. If you have purchased a
    license it will show `License Activated`, otherwise `Trial Running` and
    remaining trial duration.
-5. You can refresh license status by selecting the "DriverCentral Cloud" driver
+1. You can refresh license status by selecting the "DriverCentral Cloud" driver
    in the "System Design" tab and perform the "Check Drivers" action.
    <br><img alt="Check Drivers" src="./images/check-drivers.png" width="300"/>
-6. Configure the [InfluxDB Settings](#influxdb-settings) with the connection
+1. Configure the [InfluxDB Settings](#influxdb-settings) with the connection
    information for your InfluxDB instance. The
    [`Driver Status`](#driver-status-read-only) will display `Connected`
    automatically once the URL, API Token, and Database are set.
-7. Create measurements using the
+1. Create measurements using the
    [Measurement Configuration](#measurement-configuration) properties and bind
    Control4 variables to them.
 
@@ -136,17 +138,17 @@ is an outline of the basic steps for your convenience.
 
 1. Download the latest `control4-influxdb.zip` from
    [Github](https://github.com/finitelabs/control4-influxdb/releases/latest).
-2. Extract and
+1. Extract and
    [install](https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)
    all `.c4z` files.
-3. Use the "Search" tab to find the "Influxdb" driver and add it to your
+1. Use the "Search" tab to find the "Influxdb" driver and add it to your
    project.
    <br><img alt="Search Drivers" src="./images/search-drivers.png" width="300"/>
-4. Configure the [InfluxDB Settings](#influxdb-settings) with the connection
+1. Configure the [InfluxDB Settings](#influxdb-settings) with the connection
    information for your InfluxDB instance. The
    [`Driver Status`](#driver-status-read-only) will display `Connected`
    automatically once the URL, API Token, and Database are set.
-5. Create measurements using the
+1. Create measurements using the
    [Measurement Configuration](#measurement-configuration) properties and bind
    Control4 variables to them.
 
@@ -173,7 +175,7 @@ Displays the current connection status and write metrics.
 <img alt="Status" src="./images/ui-status.png" width="500"/>
 
 1. **Connection** - shows the connection state, InfluxDB URL, and database name.
-2. **Write Metrics** - points buffered, written, dropped, and write errors.
+1. **Write Metrics** - points buffered, written, dropped, and write errors.
 
 <div style="page-break-after: always"></div>
 
@@ -194,9 +196,9 @@ Configure measurements, schemas, and per-device readings.
 
 1. **+ Add Measurement** - create a new measurement (the name becomes the
    InfluxDB table name)
-2. **Measurement name** - click to open the editor. The table shows configured
+1. **Measurement name** - click to open the editor. The table shows configured
    fields, tags, reading count, and status at a glance.
-3. **Delete** - remove the measurement and all its readings
+1. **Delete** - remove the measurement and all its readings
 
 <div style="page-break-after: always"></div>
 
@@ -209,19 +211,19 @@ column.
 <img alt="Measurement Editor" src="./images/ui-measurement-editor.png" width="500"/>
 
 1. **Back to Measurements** - return to the list view
-2. **Schema** - define the InfluxDB columns. Add **fields** (numeric data like
+1. **Schema** - define the InfluxDB columns. Add **fields** (numeric data like
    `level`, `temperature`) and **tags** (string labels like `device_name`,
    `room_name`). Use the input boxes and **Add** buttons to create them.
-3. **Settings** - **Write Interval** controls how often data is sent (use
+1. **Settings** - **Write Interval** controls how often data is sent (use
    `Default` to inherit the global interval). **Dedup** skips writes when values
    haven't changed. **Enabled** toggles data collection.
-4. **Readings** - each reading represents one device's data mapped to this
+1. **Readings** - each reading represents one device's data mapped to this
    measurement's schema. Add one reading per device you want to log.
-5. **Add Reading** - enter a label and click to add a new reading
-6. **Reading card** - shows the reading label, **+ Device Tags** shortcut
+1. **Add Reading** - enter a label and click to add a new reading
+1. **Reading card** - shows the reading label, **+ Device Tags** shortcut
    (auto-populates `device_name` and `room_name` from the device ID),
    **Enabled** toggle, and **Remove** button
-7. **Mapping row** - one row per schema column. Each row has:
+1. **Mapping row** - one row per schema column. Each row has:
    - **Name** - the field or tag from the schema (blue = field, green = tag)
    - **Source** - `Variable` (from a device) or `Literal` (a fixed value)
    - **Device** - searchable picker for the Control4 device (Variable only)
@@ -237,11 +239,11 @@ Transforms are standard Lua expressions. The raw value is available as `value`.
 
 | Function             | Description                           | Example                             |
 | -------------------- | ------------------------------------- | ----------------------------------- |
-| `device_name(value)` | Resolve device ID to its display name | `850` &rarr; `Entry Door Lock`      |
-| `room_name(value)`   | Resolve device ID to its room name    | `850` &rarr; `1-Car Garage`         |
+| `device_name(value)` | Resolve device ID to its display name | `850` → `Entry Door Lock`           |
+| `room_name(value)`   | Resolve device ID to its room name    | `850` → `1-Car Garage`              |
 | `map({key = val})`   | Map string values to numbers          | `map({normal = 100, warning = 30})` |
-| `c2f(value)`         | Celsius to Fahrenheit                 | `20` &rarr; `68`                    |
-| `f2c(value)`         | Fahrenheit to Celsius                 | `68` &rarr; `20`                    |
+| `c2f(value)`         | Celsius to Fahrenheit                 | `20` → `68`                         |
+| `f2c(value)`         | Fahrenheit to Celsius                 | `68` → `20`                         |
 
 You can also use any Lua math expression:
 
@@ -266,7 +268,7 @@ Displays the DriverCentral cloud license status.
 
 <!-- #endif -->
 
-##### Automatic Updates [ Off | **_On_** ]
+##### Automatic Updates \[ Off | **_On_** \]
 
 <!-- #ifdef DRIVERCENTRAL -->
 
@@ -276,7 +278,7 @@ Enables or disables automatic driver updates via DriverCentral.
 
 Enables or disables automatic driver updates from GitHub releases.
 
-##### Update Channel [ **_Production_** | Prerelease ]
+##### Update Channel \[ **_Production_** | Prerelease \]
 
 Sets the update channel for which releases are considered during automatic
 updates from GitHub releases.
@@ -293,11 +295,11 @@ Displays the current status of the driver.
 
 Displays the current version of the driver.
 
-##### Log Level [ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra ]
+##### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
 
 Sets the logging level. Default is `3 - Info`.
 
-##### Log Mode [ **_Off_** | Print | Log | Print and Log ]
+##### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
 Sets the logging mode. Default is `Off`.
 
@@ -315,11 +317,11 @@ InfluxDB API authentication token. This field is masked in Composer Pro.
 
 InfluxDB database (bucket) name to write into.
 
-##### Write Precision [ ns | us | **_ms_** | s ]
+##### Write Precision \[ ns | us | **_ms_** | s \]
 
 Timestamp precision for line protocol writes. Default is `ms`.
 
-##### Default Write Interval [ 10s | 30s | **_1m_** | 5m | 15m ]
+##### Default Write Interval \[ 10s | 30s | **_1m_** | 5m | 15m \]
 
 How often the driver flushes buffered data points to InfluxDB. Individual
 measurements can override this value. Default is `1m`.
@@ -331,7 +333,7 @@ measurements can override this value. Default is `1m`.
 Maximum number of data points to buffer when the InfluxDB server is unreachable.
 Default is `10000`.
 
-##### Outage Notification Threshold [ 1m | **_5m_** | 15m | 30m | 1h ]
+##### Outage Notification Threshold \[ 1m | **_5m_** | 15m | 30m | 1h \]
 
 Fires the **Extended Outage** event after the driver has been disconnected for
 this duration. Default is `5m`.
