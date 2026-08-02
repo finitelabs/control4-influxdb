@@ -47,8 +47,6 @@ automatic offline buffering and retry.
 
 </div>
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#020A47">System Requirements</span>
 
 - Control4 OS 3.3.0 or later
@@ -65,8 +63,6 @@ automatic offline buffering and retry.
 - Exponential-backoff retry when the InfluxDB server is unreachable
 - Extended outage notification event
 - Connection status events and conditionals for programming
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#020A47">Installer Setup</span>
 
@@ -91,8 +87,6 @@ is an outline of the basic steps for your convenience.
    [Measurement Configuration](#measurement-configuration) properties and bind
    Control4 variables to them.
 
-<div style="page-break-after: always"></div>
-
 ## Driver Setup
 
 ### Driver Tabs
@@ -114,16 +108,12 @@ Displays the current connection status and write metrics.
 1. **Connection** - shows the connection state, InfluxDB URL, and database name.
 1. **Write Metrics** - points buffered, written, dropped, and write errors.
 
-<div style="page-break-after: always"></div>
-
 ##### Settings
 
 Displays the driver properties in a grouped layout. See
 [Driver Properties](#driver-properties) for details on each setting.
 
 <img alt="Settings" src="./images/ui-settings.png" width="500"/>
-
-<div style="page-break-after: always"></div>
 
 ##### Measurements
 
@@ -136,8 +126,6 @@ Configure measurements, schemas, and per-device readings.
 1. **Measurement name** - click to open the editor. The table shows configured
    fields, tags, reading count, and status at a glance.
 1. **Delete** - remove the measurement and all its readings
-
-<div style="page-break-after: always"></div>
 
 ##### Measurement Editor
 
@@ -168,8 +156,6 @@ column.
    - **Transform** - optional Lua expression (see [Transforms](#transforms))
    - **Preview** - live result evaluated on the controller
 
-<div style="page-break-after: always"></div>
-
 ##### Transforms
 
 Transforms are standard Lua expressions. The raw value is available as `value`.
@@ -190,8 +176,6 @@ You can also use any Lua math expression:
 
 > **Note:** Transform expressions use standard Lua syntax. Table constructors
 > use `=` not `:` (e.g., `map({normal = 100})` not `map({"normal": 100})`).
-
-<div style="page-break-after: always"></div>
 
 ### Driver Properties
 
@@ -274,8 +258,6 @@ the current version.
 
 Discards all data points in the offline buffer without writing them.
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#020A47">Programming</span>
 
 ## Events
@@ -299,8 +281,6 @@ other drivers to log their values to InfluxDB.
 | ------------------ | ---- | ------------------------------------------------------------------ |
 | INFLUXDB_CONNECTED | BOOL | `True` when the driver is connected to InfluxDB, `False` otherwise |
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#020A47">Support</span>
 
 If you have any questions or issues integrating this driver with Control4, you
@@ -309,8 +289,6 @@ can file an issue on GitHub:
 https://github.com/finitelabs/control4-influxdb/issues/new
 
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#020A47">Changelog</span>
 
