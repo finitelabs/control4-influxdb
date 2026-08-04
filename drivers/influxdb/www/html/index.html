@@ -52,8 +52,17 @@
     .nav-tab:hover { color: var(--text); }
     .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-    .panel { display: none; padding: 16px; max-width: 900px; }
+    .panel { display: none; padding: 16px; }
     .panel.active { display: block; }
+
+    /* Composer's webview shows classic always-on scrollbars; keep them slim */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: #c7ccd4; border-radius: 5px;
+      border: 2px solid transparent; background-clip: content-box;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: #a9b0ba; background-clip: content-box; border: 2px solid transparent; }
 
     .card {
       background: var(--surface);
@@ -101,7 +110,16 @@
     .btn-outline:hover { background: var(--surface-hover); }
     .btn-sm { padding: 3px 8px; font-size: 11px; }
 
-    table { width: 100%; border-collapse: collapse; }
+    /* Scroll inside the card only on narrow panes. Fixed layout keeps the
+       declared column widths so a long name ellipsizes rather than pushing the
+       Delete button past the wrapper, which has nothing to scroll. */
+    .table-wrap { overflow-x: hidden; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    @media (max-width: 640px) {
+      .table-wrap { overflow-x: auto; }
+      table { min-width: 520px; }
+    }
     th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
     th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-weight: 600; }
     tr:hover td { background: var(--surface-hover); }
@@ -124,12 +142,13 @@
     .status-dot.reconnecting { background: var(--warning); }
 
     .flex { display: flex; }
-    .flex-between { display: flex; justify-content: space-between; align-items: center; }
+    .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
     .gap-8 { gap: 8px; }
     .mb-8 { margin-bottom: 8px; }
     .mb-12 { margin-bottom: 12px; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    @media (max-width: 560px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
 
     .empty { text-align: center; padding: 30px 16px; color: var(--text-muted); font-size: 12px; }
 
@@ -139,22 +158,33 @@
     .prop-group { margin-bottom: 14px; }
     .prop-group h3 { border-bottom: 1px solid var(--border); padding-bottom: 6px; }
 
+    /* No `overflow` here: the searchable dropdowns are absolutely positioned
+       children and any clipping ancestor would cut their popups off. */
     .reading-card {
       background: var(--bg); border: 1px solid var(--border);
       border-radius: var(--radius); padding: 10px 14px; margin-bottom: 10px;
-      overflow: hidden;
     }
     .mapping-row {
       display: grid;
-      grid-template-columns: 80px 70px minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,100px);
+      grid-template-columns: 84px 76px minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,120px);
       gap: 6px; align-items: center;
       padding: 5px 0; border-bottom: 1px solid var(--border);
       font-size: 12px;
     }
     .mapping-row:last-child { border-bottom: none; }
     .mapping-row select, .mapping-row input { margin: 0; padding: 3px 5px; font-size: 12px; min-width: 0; }
+    .mapping-row .search-select { min-width: 0; }
     .mapping-span2 { grid-column: span 2; }
     .mapping-preview { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; text-align: left; display: block; }
+    /* Narrow panes: drop transform + preview onto a second line. */
+    @media (max-width: 880px) {
+      .mapping-row {
+        grid-template-columns: 84px 76px minmax(0,1fr) minmax(0,1fr);
+        row-gap: 4px;
+      }
+      .mapping-row .mapping-transform { grid-column: 2 / 4; }
+      .mapping-row .mapping-preview { grid-column: 4 / 5; }
+    }
     .input-error { border-color: var(--danger) !important; }
     .input-valid { border-color: var(--success) !important; }
     .error-text { color: var(--danger); font-size: 11px; margin-top: -8px; margin-bottom: 8px; }
@@ -181,6 +211,8 @@
 
     /* Searchable dropdown */
     .search-select { position: relative; display: inline-block; }
+    /* Lift the whole control while open so its popup clears sibling cards. */
+    .search-select.open { z-index: 60; }
     .search-select-trigger {
       width: 100%; margin: 0; padding: 3px 20px 3px 5px; font-size: 12px;
       border: 1px solid var(--border); border-radius: var(--radius);
@@ -190,12 +222,15 @@
     }
     .search-select-trigger.placeholder { color: var(--text-muted); }
     .search-select-popup {
-      display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+      display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 70;
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius); box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       min-width: 220px;
     }
     .search-select.open .search-select-popup { display: block; }
+    /* Flipped by positionSearchPopup() when the popup would leave the pane. */
+    .search-select-popup.flip-right { left: auto; right: 0; }
+    .search-select-popup.flip-up { top: auto; bottom: 100%; }
     .search-select-search {
       width: 100%; margin: 0; padding: 5px 8px; font-size: 12px;
       border: none; border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0;
@@ -253,10 +288,12 @@
       <button class="btn btn-primary" onclick="addMeasurement()">+ Add Measurement</button>
     </div>
     <div class="card" style="padding:0;">
-      <table>
-        <thead><tr><th>Name</th><th>Fields</th><th>Tags</th><th>Readings</th><th>Status</th><th></th></tr></thead>
-        <tbody id="meas-table-body"></tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th style="width:20%;">Name</th><th>Fields</th><th>Tags</th><th style="width:80px;">Readings</th><th style="width:80px;">Status</th><th style="width:90px;"></th></tr></thead>
+          <tbody id="meas-table-body"></tbody>
+        </table>
+      </div>
       <div id="meas-empty" class="empty">No measurements configured.</div>
     </div>
   </div>
@@ -669,7 +706,7 @@ function renderMeasList() {
     var m = gConfig[name];
     var rc = Object.keys(m.readings || {}).length;
     html += '<tr>' +
-      '<td><a href="#" onclick="editMeasurement(\'' + esc(name) + '\');return false;" style="color:var(--accent);font-weight:500;">' + esc(name) + '</a></td>' +
+      '<td class="trunc" title="' + esc(name) + '"><a href="#" onclick="editMeasurement(\'' + esc(name) + '\');return false;" style="color:var(--accent);font-weight:500;">' + esc(name) + '</a></td>' +
       '<td>' + (m.fieldDefs||[]).map(function(f){return '<span class="chip chip-field">'+esc(f)+'</span> ';}).join('') + '</td>' +
       '<td>' + (m.tagDefs||[]).map(function(t){return '<span class="chip chip-tag">'+esc(t)+'</span> ';}).join('') + '</td>' +
       '<td>' + rc + '</td>' +
@@ -869,7 +906,7 @@ function renderReadings(measName, meas) {
       }
 
       // Col 4: Transform
-      html += '<input type="text" id="tfm_'+mid+'" value="'+esc(mapping.transform||'')+'" placeholder="Transform"';
+      html += '<input type="text" class="mapping-transform" id="tfm_'+mid+'" value="'+esc(mapping.transform||'')+'" placeholder="Transform"';
       html += ' oninput="onTransformInput(\''+mid+'\',\''+eid+'\',\''+escId(defName)+'\')"';
       html += ' onchange="onTransformChange(\''+eid+'\',\''+escId(defName)+'\')"';
       html += ' style="margin:0;padding:2px 6px;" title="'+esc(mapping.transform || 'e.g. value*100, device_name(value)')+'"/>';
@@ -910,6 +947,20 @@ function findDeviceLabel(devId) {
   return 'Device ' + devId;
 }
 
+// Nudge an open popup back inside the pane: it is left-anchored with a
+// min-width, so a trigger near an edge would otherwise spill off-screen.
+function positionSearchPopup(ss) {
+  var popup = ss.querySelector('.search-select-popup');
+  if (!popup) return;
+  popup.classList.remove('flip-right', 'flip-up');
+  var r = popup.getBoundingClientRect();
+  if (r.right > document.documentElement.clientWidth - 8) popup.classList.add('flip-right');
+  var trigger = ss.querySelector('.search-select-trigger');
+  var spaceBelow = document.documentElement.clientHeight - (trigger ? trigger.getBoundingClientRect().bottom : r.top);
+  var spaceAbove = trigger ? trigger.getBoundingClientRect().top : r.top;
+  if (r.height > spaceBelow - 8 && spaceAbove > spaceBelow) popup.classList.add('flip-up');
+}
+
 function openDeviceSearch(mid) {
   // Find container: devss_ for mapping rows, dtss_ for device tags
   var ss = document.getElementById('devss_' + mid) || document.getElementById('dtss_' + mid.replace('dt_',''));
@@ -920,6 +971,7 @@ function openDeviceSearch(mid) {
   if (wasOpen) return;
   ss.classList.add('open');
   filterDeviceSearch(mid, '');
+  positionSearchPopup(ss);
   var searchInput = ss.querySelector('.search-select-search');
   if (searchInput) { searchInput.value = ''; searchInput.focus(); }
   setTimeout(function() {
@@ -936,14 +988,21 @@ function filterDeviceSearch(mid, query) {
   var selDevId = '';
   var trigger = document.getElementById('devin_' + mid);
   if (trigger) selDevId = trigger.dataset.devid || '';
+  // Device Tags only needs the item to exist; a mapping row must bind a
+  // variable. Same list, different subsets.
+  var isTagPicker = mid.indexOf('dt_') === 0;
   var html = '';
   gDevices.forEach(function(d) {
+    if (!isTagPicker && d.hasVariables === false) return;
     var label = d.displayName || d.name || ('Device ' + d.id);
     if (q && label.toLowerCase().indexOf(q) < 0) return;
     var cls = String(d.id) === selDevId ? ' selected' : '';
     html += '<div class="search-select-item'+cls+'" onclick="selectDevice(\''+mid+'\',\''+d.id+'\',\''+esc(label).replace(/'/g,"\\'")+'\')">'+esc(label)+'</div>';
   });
   list.innerHTML = html || '<div class="search-select-item" style="color:var(--text-muted);">No matches</div>';
+  // Filtering changes the popup height, so re-check whether it still fits.
+  var ss = list.closest('.search-select');
+  if (ss && ss.classList.contains('open')) positionSearchPopup(ss);
 }
 
 function selectDevice(mid, devId, label) {
@@ -1001,6 +1060,7 @@ function openVarSearch(mid) {
   });
   list.innerHTML = html || '<div class="search-select-item" style="color:var(--text-muted);">No variables found</div>';
   ss.classList.add('open');
+  positionSearchPopup(ss);
   setTimeout(function() {
     document.addEventListener('click', function closeHandler(e) {
       if (!ss.contains(e.target)) { ss.classList.remove('open'); document.removeEventListener('click', closeHandler); }
