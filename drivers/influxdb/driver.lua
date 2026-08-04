@@ -319,11 +319,18 @@ end
 
 --- Send the device list to the web UI with display names (Room > Device).
 --- Uses C4:GetDevices() for efficiency (avoids parsing large XML from GetProjectItems).
+---
+--- Reports hasVariables rather than filtering: mapping rows can only bind a
+--- variable, but Device Tags only needs the item to exist. Items often share a
+--- room and name -- a driver and each proxy it declares, or many instances of
+--- one driver -- and neither file name nor proxy name separates those, so the
+--- device id is appended.
 function UIR._GET_DEVICES()
   log:trace("UIR.GET_DEVICES()")
   local devices = {}
   local allDevices = C4:GetDevices() or {}
   for id, dev in pairs(allDevices) do
+    local ok, deviceVars = pcall(C4.GetDeviceVariables, C4, id)
     local name = dev.deviceName or ("Device " .. id)
     local displayName = name
     if not IsEmpty(dev.roomName) then
@@ -334,7 +341,17 @@ function UIR._GET_DEVICES()
       name = name,
       displayName = displayName,
       roomName = dev.roomName or "",
+      hasVariables = (ok and deviceVars ~= nil and next(deviceVars) ~= nil),
     }
+  end
+  local labelCounts = {}
+  for _, d in ipairs(devices) do
+    labelCounts[d.displayName] = (labelCounts[d.displayName] or 0) + 1
+  end
+  for _, d in ipairs(devices) do
+    if labelCounts[d.displayName] > 1 then
+      d.displayName = string.format("%s (%s)", d.displayName, d.id)
+    end
   end
   table.sort(devices, function(a, b)
     return (a.displayName or "") < (b.displayName or "")
