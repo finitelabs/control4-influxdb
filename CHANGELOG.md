@@ -22,6 +22,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- A device's own variables are always listed before its proxies' in the variable
+  picker.
 - Device and variable dropdowns in the measurement editor are no longer cut off
   by the surrounding card, and stay on screen near the edges of the pane.
 - A device that a driver exposes through a proxy of the same name now appears

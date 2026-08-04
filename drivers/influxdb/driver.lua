@@ -436,16 +436,22 @@ function UIR._GET_DEVICE_VARIABLES(tParams)
   end
 
   local entry = C4:GetDevices({ DeviceIds = tostring(devId) })[devId] or {}
-  local members = { { id = devId, section = proxySectionLabel(entry, true) } }
+  local members = { { id = devId, section = proxySectionLabel(entry, true), order = 1 } }
   local queue, seen = { { id = devId, dev = entry } }, { [devId] = true }
   while #queue > 0 do
-    local cur = table.remove(queue)
+    local cur = table.remove(queue, 1)
+    -- pairs() over proxies has no defined order, so walk them by id: section
+    -- order would otherwise vary between calls.
+    local childIds = {}
     for proxyId in pairs((cur.dev or {}).proxies or {}) do
-      local pid = tonumber(proxyId) or proxyId
+      childIds[#childIds + 1] = tonumber(proxyId) or proxyId
+    end
+    table.sort(childIds)
+    for _, pid in ipairs(childIds) do
       local proxy = C4:GetDevices({ DeviceIds = tostring(pid) })[pid]
       if not seen[pid] and isRestatedProxy(proxy, cur.dev) then
         seen[pid] = true
-        members[#members + 1] = { id = pid, section = proxySectionLabel(proxy, false) }
+        members[#members + 1] = { id = pid, section = proxySectionLabel(proxy, false), order = #members + 1 }
         queue[#queue + 1] = { id = pid, dev = proxy }
       end
     end
@@ -460,6 +466,7 @@ function UIR._GET_DEVICE_VARIABLES(tParams)
           id = tonumber(varId),
           deviceId = member.id,
           section = member.section,
+          order = member.order,
           name = varInfo.name or ("var" .. varId),
           type = varInfo.type or "STRING",
           value = varInfo.value,
@@ -467,16 +474,13 @@ function UIR._GET_DEVICE_VARIABLES(tParams)
       end
     end
   end
+  -- Order on the member's position, not its label: comparing label strings ties
+  -- when a proxy's .c4i is named Device, and the owner-first rule contradicts
+  -- that tie. LuaJIT's table.sort does not reject the resulting cycle, it just
+  -- silently stops putting the device's own variables first.
   table.sort(vars, function(a, b)
-    if a.section ~= b.section then
-      -- The driver's own variables lead; proxies follow alphabetically.
-      if a.deviceId == devId then
-        return true
-      end
-      if b.deviceId == devId then
-        return false
-      end
-      return a.section < b.section
+    if a.order ~= b.order then
+      return a.order < b.order
     end
     return (a.name or "") < (b.name or "")
   end)
