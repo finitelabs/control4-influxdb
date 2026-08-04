@@ -240,6 +240,12 @@
     .search-select-item { padding: 4px 8px; cursor: pointer; font-size: 12px; }
     .search-select-item:hover { background: var(--surface-hover); }
     .search-select-item.selected { background: #dbeafe; }
+    .search-select-section {
+      padding: 4px 8px 2px; font-size: 9.5px; font-weight: 700;
+      letter-spacing: 0.6px; text-transform: uppercase; color: #9ca3af;
+      border-top: 1px solid var(--border);
+    }
+    .search-select-list > .search-select-section:first-child { border-top: none; }
   </style>
 </head>
 <body>
@@ -519,6 +525,10 @@ function handleDriverData(cmd, params) {
 var gConfig = {};
 var gDevices = [];
 var gDeviceVars = {};
+// A merged entry spans several device ids: index variables by their full
+// "<deviceId>:<varId>" key, and map each member back to its entry.
+var gVarIndex = {};
+var gEntryOfMember = {};
 var gProperties = [];
 var gEditingMeas = null;
 
@@ -853,10 +863,9 @@ function renderReadings(measName, meas) {
     html += '<div class="reading-card">';
     // Reading header with device tags selector
     html += '<div class="flex-between mb-8"><strong>'+esc(label)+'</strong><div class="flex gap-8">';
-    var dtId = 'dt_'+eid;
     html += '<div class="search-select" id="dtss_'+eid+'" style="width:180px;">';
-    html += '<div class="search-select-trigger placeholder" onclick="openDeviceSearch(\'dt_'+eid+'\')" data-devid="" id="devin_dt_'+eid+'">+ Device Tags...</div>';
-    html += '<div class="search-select-popup"><input type="text" class="search-select-search" placeholder="Search..." oninput="filterDeviceSearch(\'dt_'+eid+'\',this.value)"/>';
+    html += '<div class="search-select-trigger placeholder" onclick="openDeviceSearch(\'dt_'+eid+'\',true)" data-devid="" id="devin_dt_'+eid+'">+ Device Tags...</div>';
+    html += '<div class="search-select-popup"><input type="text" class="search-select-search" placeholder="Search..." oninput="filterDeviceSearch(\'dt_'+eid+'\',this.value,true)"/>';
     html += '<div class="search-select-list" id="devlist_dt_'+eid+'"></div></div></div>';
     html += '<select onchange="toggleReadingEnabled(\''+eid+'\',this.value)" style="margin:0;width:auto;padding:2px 6px;" title="Enable/disable this reading">';
     html += '<option value="true"'+(reading.enabled!==false?' selected':'')+'>Enabled</option>';
@@ -882,18 +891,14 @@ function renderReadings(measName, meas) {
 
       // Col 3+4: Device & Variable (or Literal spanning both, or Not mapped spanning both)
       if (source === 'variable') {
-        var selDevId = mapping.varId ? mapping.varId.split(':')[0] : '';
+        var selDevId = mapping.varId ? (gEntryOfMember[mapping.varId.split(':')[0]] || mapping.varId.split(':')[0]) : '';
         var selDevLabel = selDevId ? findDeviceLabel(selDevId) : '';
         html += '<div class="search-select" id="devss_'+mid+'">';
         html += '<div class="search-select-trigger'+(selDevId?'':' placeholder')+'" onclick="openDeviceSearch(\''+mid+'\')" data-devid="'+selDevId+'"';
         html += ' title="'+esc(selDevLabel || '')+'" id="devin_'+mid+'">'+esc(selDevLabel || 'Device...')+'</div>';
         html += '<div class="search-select-popup"><input type="text" class="search-select-search" placeholder="Search..." oninput="filterDeviceSearch(\''+mid+'\',this.value)"/>';
         html += '<div class="search-select-list" id="devlist_'+mid+'"></div></div></div>';
-        var selVarLabel = '';
-        if (selDevId && mapping.varId && gDeviceVars[selDevId]) {
-          var varParts = mapping.varId.split(':');
-          (gDeviceVars[selDevId]||[]).forEach(function(v) { if (String(v.id)===varParts[1]) selVarLabel = v.name; });
-        }
+        var selVarLabel = (gVarIndex[mapping.varId || ''] || {}).name || '';
         html += '<div class="search-select" id="varss_'+mid+'">';
         html += '<div class="search-select-trigger'+(selVarLabel?'':' placeholder')+'" onclick="openVarSearch(\''+mid+'\')" data-varid="'+(mapping.varId||'')+'"';
         html += ' title="'+esc(selVarLabel || '')+'" id="varin_'+mid+'">'+esc(selVarLabel || 'Variable...')+'</div>';
@@ -961,16 +966,18 @@ function positionSearchPopup(ss) {
   if (r.height > spaceBelow - 8 && spaceAbove > spaceBelow) popup.classList.add('flip-up');
 }
 
-function openDeviceSearch(mid) {
-  // Find container: devss_ for mapping rows, dtss_ for device tags
-  var ss = document.getElementById('devss_' + mid) || document.getElementById('dtss_' + mid.replace('dt_',''));
+function openDeviceSearch(mid, isTagPicker) {
+  // Container: dtss_<reading> for device tags, devss_<mapping> for mapping rows.
+  var ss = isTagPicker
+    ? document.getElementById('dtss_' + mid.substring(3))
+    : document.getElementById('devss_' + mid);
   if (!ss) return;
   var wasOpen = ss.classList.contains('open');
   // Close all other open ones
   document.querySelectorAll('.search-select.open').forEach(function(el) { el.classList.remove('open'); });
   if (wasOpen) return;
   ss.classList.add('open');
-  filterDeviceSearch(mid, '');
+  filterDeviceSearch(mid, '', isTagPicker);
   positionSearchPopup(ss);
   var searchInput = ss.querySelector('.search-select-search');
   if (searchInput) { searchInput.value = ''; searchInput.focus(); }
@@ -981,7 +988,7 @@ function openDeviceSearch(mid) {
   }, 0);
 }
 
-function filterDeviceSearch(mid, query) {
+function filterDeviceSearch(mid, query, isTagPicker) {
   var list = document.getElementById('devlist_' + mid);
   if (!list) return;
   var q = (query || '').toLowerCase();
@@ -989,15 +996,14 @@ function filterDeviceSearch(mid, query) {
   var trigger = document.getElementById('devin_' + mid);
   if (trigger) selDevId = trigger.dataset.devid || '';
   // Device Tags only needs the item to exist; a mapping row must bind a
-  // variable. Same list, different subsets.
-  var isTagPicker = mid.indexOf('dt_') === 0;
+  // variable. The caller says which -- a reading label can escId into `dt_`.
   var html = '';
   gDevices.forEach(function(d) {
     if (!isTagPicker && d.hasVariables === false) return;
     var label = d.displayName || d.name || ('Device ' + d.id);
     if (q && label.toLowerCase().indexOf(q) < 0) return;
     var cls = String(d.id) === selDevId ? ' selected' : '';
-    html += '<div class="search-select-item'+cls+'" onclick="selectDevice(\''+mid+'\',\''+d.id+'\',\''+esc(label).replace(/'/g,"\\'")+'\')">'+esc(label)+'</div>';
+    html += '<div class="search-select-item'+cls+'" onclick="selectDevice(\''+mid+'\',\''+d.id+'\',\''+esc(label).replace(/'/g,"\\'")+'\','+(isTagPicker?'true':'false')+')">'+esc(label)+'</div>';
   });
   list.innerHTML = html || '<div class="search-select-item" style="color:var(--text-muted);">No matches</div>';
   // Filtering changes the popup height, so re-check whether it still fits.
@@ -1005,15 +1011,15 @@ function filterDeviceSearch(mid, query) {
   if (ss && ss.classList.contains('open')) positionSearchPopup(ss);
 }
 
-function selectDevice(mid, devId, label) {
+function selectDevice(mid, devId, label, isTagPicker) {
   var trigger = document.getElementById('devin_' + mid);
-  var ss = document.getElementById('devss_' + mid);
+  var ss = isTagPicker
+    ? document.getElementById('dtss_' + mid.substring(3))
+    : document.getElementById('devss_' + mid);
   if (ss) ss.classList.remove('open');
 
-  // Device Tags dropdown (dt_ prefix)
-  if (mid.indexOf('dt_') === 0) {
-    var readingId = mid.substring(3);
-    onReadingDeviceTags(readingId, devId);
+  if (isTagPicker) {
+    onReadingDeviceTags(mid.substring(3), devId);
     // Reset to placeholder after selection
     if (trigger) { trigger.textContent = '+ Device Tags...'; trigger.dataset.devid = ''; trigger.classList.add('placeholder'); }
     return;
@@ -1053,8 +1059,13 @@ function openVarSearch(mid) {
   var list = document.getElementById('varlist_' + mid);
   if (!list) return;
   var html = '';
+  var lastSection = null;
   (gDeviceVars[devId]||[]).forEach(function(v) {
-    var vid = devId + ':' + v.id;
+    if (v.section && v.section !== lastSection) {
+      html += '<div class="search-select-section">'+esc(v.section)+'</div>';
+      lastSection = v.section;
+    }
+    var vid = (v.deviceId != null ? v.deviceId : devId) + ':' + v.id;
     var cls = vid === selVarId ? ' selected' : '';
     html += '<div class="search-select-item'+cls+'" onclick="selectVariable(\''+mid+'\',\''+vid+'\',\''+esc(v.name).replace(/'/g,"\\'")+'\')">'+esc(v.name)+'</div>';
   });
@@ -1153,11 +1164,8 @@ function resolveCurrentValue(mapping) {
   if (mapping.source === 'literal') {
     raw = mapping.literal;
   } else if (mapping.source === 'variable' && mapping.varId) {
-    var parts = mapping.varId.split(':');
-    var vars = gDeviceVars[parts[0]] || [];
-    for (var i = 0; i < vars.length; i++) {
-      if (String(vars[i].id) === parts[1]) { raw = vars[i].value; break; }
-    }
+    var v = gVarIndex[mapping.varId];
+    if (v) raw = v.value;
   }
   if (raw === null || raw === undefined) return null;
   return String(raw);
@@ -1234,20 +1242,30 @@ function removeReading(rid) { if(gEditingMeas && confirm('Remove reading "'+unes
 // ============================================================
 function onDevicesLoaded(devices) {
   gDevices = devices || [];
+  gEntryOfMember = {};
+  gDevices.forEach(function(d) {
+    (d.memberIds || [d.id]).forEach(function(m) { gEntryOfMember[String(m)] = String(d.id); });
+  });
   if (gEditingMeas && gConfig[gEditingMeas]) renderMeasEditor(gEditingMeas);
 }
 
 function onDeviceVariablesLoaded(deviceId, vars) {
   var did = String(deviceId);
   gDeviceVars[did] = vars || [];
-  // Patch variable triggers that reference this device
+  // Re-index from scratch for this entry so a variable that has gone away does
+  // not leave a stale value behind.
+  Object.keys(gVarIndex).forEach(function(k) {
+    if (gEntryOfMember[k.split(':')[0]] === did) delete gVarIndex[k];
+  });
+  (vars || []).forEach(function(v) {
+    gVarIndex[String(v.deviceId != null ? v.deviceId : did) + ':' + v.id] = v;
+  });
+  // A mapping stores the member's id, and a bare variable id is ambiguous.
   document.querySelectorAll('[id^="varin_"]').forEach(function(el) {
     var varid = el.getAttribute('data-varid') || '';
-    if (!varid.startsWith(did + ':')) return;
-    var varIdNum = varid.split(':')[1];
-    var label = '';
-    (vars || []).forEach(function(v) { if (String(v.id) === varIdNum) label = v.name; });
-    if (label) { el.textContent = label; el.title = label; el.classList.remove('placeholder'); }
+    if (!varid || gEntryOfMember[varid.split(':')[0]] !== did) return;
+    var v = gVarIndex[varid];
+    if (v && v.name) { el.textContent = v.name; el.title = v.name; el.classList.remove('placeholder'); }
   });
   // Refresh previews for mappings that use this device's variables
   if (!gEditingMeas || !gConfig[gEditingMeas]) return;
@@ -1259,7 +1277,7 @@ function onDeviceVariablesLoaded(deviceId, vars) {
     allDefs.forEach(function(defName) {
       var mapping = (reading.mappings||{})[defName] || {};
       if (mapping.source !== 'variable' || !mapping.varId) return;
-      if (!mapping.varId.startsWith(did + ':')) return;
+      if (gEntryOfMember[mapping.varId.split(':')[0]] !== did) return;
       var mid = eid + '__' + escId(defName);
       var curVal = resolveCurrentValue(mapping);
       if (curVal === null) return;

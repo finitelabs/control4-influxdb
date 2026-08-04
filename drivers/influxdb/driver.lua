@@ -317,32 +317,95 @@ function UIR._GET_STATUS()
   return uiRespond("STATUS_DATA", { status = JSON:encode(status) })
 end
 
+--- Whether a proxy merely restates the device that declares it. A proxy named
+--- for itself -- a security panel's areas, a receiver's tuner -- must stay its
+--- own entry or it vanishes from the picker.
+--- @param proxy table|nil The proxy's device definition, if it is in the project.
+--- @param owner table The declaring device's definition.
+--- @return boolean
+local function isRestatedProxy(proxy, owner)
+  return proxy ~= nil and tostring(proxy.deviceName) == tostring(owner.deviceName)
+end
+
+--- Section heading for a member of a merged entry, taken from the proxy's .c4i.
+--- @param dev table A device definition from C4:GetDevices().
+--- @param isOwner boolean True for the driver itself rather than one of its proxies.
+--- @return string label
+local function proxySectionLabel(dev, isOwner)
+  if isOwner then
+    return "Device"
+  end
+  local file = tostring((dev or {}).driverFileName or "")
+  local base = file:match("^(.*)%.c4i$") or file:match("^(.*)%.c4z$")
+  return IsEmpty(base) and "Proxy" or base
+end
+
 --- Send the device list to the web UI with display names (Room > Device).
 --- Uses C4:GetDevices() for efficiency (avoids parsing large XML from GetProjectItems).
 ---
 --- Reports hasVariables rather than filtering: mapping rows can only bind a
---- variable, but Device Tags only needs the item to exist. Items often share a
---- room and name -- a driver and each proxy it declares, or many instances of
---- one driver -- and neither file name nor proxy name separates those, so the
---- device id is appended.
+--- variable, but Device Tags only needs the item to exist.
+---
+--- A driver and the proxies that restate it are folded into one entry via the
+--- parent's `proxies` table. Entries that still share a label get the id.
 function UIR._GET_DEVICES()
   log:trace("UIR.GET_DEVICES()")
   local devices = {}
   local allDevices = C4:GetDevices() or {}
+
+  -- Proxy id -> owning driver id, for proxies that only restate their owner.
+  local ownerOf = {}
   for id, dev in pairs(allDevices) do
-    local ok, deviceVars = pcall(C4.GetDeviceVariables, C4, id)
-    local name = dev.deviceName or ("Device " .. id)
-    local displayName = name
-    if not IsEmpty(dev.roomName) then
-      displayName = dev.roomName .. " > " .. name
+    for proxyId in pairs(dev.proxies or {}) do
+      local pid = tonumber(proxyId) or proxyId
+      if isRestatedProxy(allDevices[pid], dev) then
+        ownerOf[pid] = id
+      end
     end
-    devices[#devices + 1] = {
-      id = id,
-      name = name,
-      displayName = displayName,
-      roomName = dev.roomName or "",
-      hasVariables = (ok and deviceVars ~= nil and next(deviceVars) ~= nil),
-    }
+  end
+
+  -- Collapse chains so a proxy of a proxy still lands in an entry rather than
+  -- being dropped for belonging to a device that is not one itself.
+  local rootOf, membersOf = {}, {}
+  for id in pairs(allDevices) do
+    local root, seen = id, { [id] = true }
+    while ownerOf[root] ~= nil and not seen[ownerOf[root]] do
+      root = ownerOf[root]
+      seen[root] = true
+    end
+    rootOf[id] = root
+    membersOf[root] = membersOf[root] or {}
+    table.insert(membersOf[root], id)
+  end
+
+  for id, dev in pairs(allDevices) do
+    if rootOf[id] == id then
+      local memberIds = membersOf[id]
+      table.sort(memberIds)
+
+      local hasVariables = false
+      for _, mid in ipairs(memberIds) do
+        local ok, memberVars = pcall(C4.GetDeviceVariables, C4, mid)
+        if ok and memberVars ~= nil and next(memberVars) ~= nil then
+          hasVariables = true
+          break
+        end
+      end
+
+      local name = dev.deviceName or ("Device " .. id)
+      local displayName = name
+      if not IsEmpty(dev.roomName) then
+        displayName = dev.roomName .. " > " .. name
+      end
+      devices[#devices + 1] = {
+        id = id,
+        name = name,
+        displayName = displayName,
+        roomName = dev.roomName or "",
+        hasVariables = hasVariables,
+        memberIds = memberIds,
+      }
+    end
   end
   local labelCounts = {}
   for _, d in ipairs(devices) do
@@ -359,7 +422,10 @@ function UIR._GET_DEVICES()
   return uiRespond("DEVICES_DATA", { devices = JSON:encode(devices) })
 end
 
---- Send variables for a specific device to the web UI.
+--- Send variables for a device entry to the web UI.
+---
+--- Returns the entry's variables and its folded proxies', each carrying the id
+--- of the member that owns it -- which is what a mapping stores.
 --- @param tParams table
 function UIR._GET_DEVICE_VARIABLES(tParams)
   log:trace("UIR.GET_DEVICE_VARIABLES()")
@@ -368,19 +434,50 @@ function UIR._GET_DEVICE_VARIABLES(tParams)
   if not devId then
     return
   end
+
+  local entry = C4:GetDevices({ DeviceIds = tostring(devId) })[devId] or {}
+  local members = { { id = devId, section = proxySectionLabel(entry, true) } }
+  local queue, seen = { { id = devId, dev = entry } }, { [devId] = true }
+  while #queue > 0 do
+    local cur = table.remove(queue)
+    for proxyId in pairs((cur.dev or {}).proxies or {}) do
+      local pid = tonumber(proxyId) or proxyId
+      local proxy = C4:GetDevices({ DeviceIds = tostring(pid) })[pid]
+      if not seen[pid] and isRestatedProxy(proxy, cur.dev) then
+        seen[pid] = true
+        members[#members + 1] = { id = pid, section = proxySectionLabel(proxy, false) }
+        queue[#queue + 1] = { id = pid, dev = proxy }
+      end
+    end
+  end
+
   local vars = {}
-  local ok, deviceVars = pcall(C4.GetDeviceVariables, C4, devId)
-  if ok and deviceVars then
-    for varId, varInfo in pairs(deviceVars) do
-      vars[#vars + 1] = {
-        id = tonumber(varId),
-        name = varInfo.name or ("var" .. varId),
-        type = varInfo.type or "STRING",
-        value = varInfo.value,
-      }
+  for _, member in ipairs(members) do
+    local ok, deviceVars = pcall(C4.GetDeviceVariables, C4, member.id)
+    if ok and deviceVars then
+      for varId, varInfo in pairs(deviceVars) do
+        vars[#vars + 1] = {
+          id = tonumber(varId),
+          deviceId = member.id,
+          section = member.section,
+          name = varInfo.name or ("var" .. varId),
+          type = varInfo.type or "STRING",
+          value = varInfo.value,
+        }
+      end
     end
   end
   table.sort(vars, function(a, b)
+    if a.section ~= b.section then
+      -- The driver's own variables lead; proxies follow alphabetically.
+      if a.deviceId == devId then
+        return true
+      end
+      if b.deviceId == devId then
+        return false
+      end
+      return a.section < b.section
+    end
     return (a.name or "") < (b.name or "")
   end)
   return uiRespond("DEVICE_VARIABLES_DATA", {
