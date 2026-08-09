@@ -424,15 +424,6 @@ else
   function runEventLoop() end
 end
 
--- Defined outside the branches above: both SetTimer implementations return a
--- handle carrying Cancel, and the previous copy sat only in the no-luasocket
--- branch, so C4:KillTimer was nil on the path the suite actually runs.
-function C4:KillTimer(handle)
-  if type(handle) == "table" and handle.Cancel then
-    handle:Cancel()
-  end
-end
-
 print("C4 shim layer loaded" .. (has_socket and " (with luasocket)" or " (stubs only)"))
 
 return C4
