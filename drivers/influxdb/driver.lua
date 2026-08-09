@@ -26,6 +26,7 @@ local SubscriptionEngine = require("lib.subscriptions")
 local MeasurementManager = require("lib.measurements")
 local InfluxClient = require("lib.influx_client")
 local transform = require("lib.transform")
+local agents = require("lib.agents")
 
 ---------------------------------------------------------------------------
 -- State
@@ -402,10 +403,27 @@ function UIR._GET_DEVICES()
         name = name,
         displayName = displayName,
         roomName = dev.roomName or "",
+        section = "Devices",
         hasVariables = hasVariables,
         memberIds = memberIds,
       }
     end
+  end
+
+  -- Absent from C4:GetDevices(), so added separately. "Agents" stands in as the
+  -- room to keep the picker's "Room > Device" shape.
+  -- Refreshed per load so a newly added agent appears without a restart.
+  for agentId, agentName in pairs(agents.getAll(true)) do
+    local ok, agentVars = pcall(C4.GetDeviceVariables, C4, agentId)
+    devices[#devices + 1] = {
+      id = agentId,
+      name = agentName,
+      displayName = "Agents > " .. agentName,
+      roomName = "Agents",
+      section = "Agents",
+      hasVariables = ok and agentVars ~= nil and next(agentVars) ~= nil,
+      memberIds = { agentId },
+    }
   end
   local labelCounts = {}
   for _, d in ipairs(devices) do
@@ -416,7 +434,13 @@ function UIR._GET_DEVICES()
       d.displayName = string.format("%s (%s)", d.displayName, d.id)
     end
   end
+  -- Devices first so the section headings keep a fixed order.
+  local sectionRank = { Devices = 1, Agents = 2 }
   table.sort(devices, function(a, b)
+    local ra, rb = sectionRank[a.section] or 9, sectionRank[b.section] or 9
+    if ra ~= rb then
+      return ra < rb
+    end
     return (a.displayName or "") < (b.displayName or "")
   end)
   return uiRespond("DEVICES_DATA", { devices = JSON:encode(devices) })
@@ -503,10 +527,32 @@ function UIR._EVAL_TRANSFORM(tParams)
   else
     result, err = transform.eval(expression, tostring(rawValue))
   end
+
+  -- Fields preview with their type visible (0, 0.0, "0", false) so a lossy pin
+  -- shows before it is saved. Serialisation is left out: the suffix is stripped
+  -- below and tags preview unescaped.
+  if not err and params.kind == "field" and result ~= nil then
+    local valueType = params.valueType
+    if IsEmpty(valueType) then
+      valueType = InfluxWriter.inferValueType(result)
+    end
+    local formatted, ferr = InfluxWriter.formatFieldValue(result, valueType)
+    if formatted then
+      -- Display only; the write keeps the suffix.
+      result = formatted:gsub("i$", "")
+    else
+      err = ferr
+    end
+  end
+
+  -- Encoded, not sent as scalars: C4:SendDataToUI coerces a numeric string, so
+  -- "50.0" would arrive as 50. The other handlers encode for the same reason.
   return uiRespond("TRANSFORM_RESULT", {
-    id = params.id or "",
-    result = result ~= nil and tostring(result) or "",
-    error = err or "",
+    payload = JSON:encode({
+      id = params.id or "",
+      result = result ~= nil and tostring(result) or "",
+      error = err or "",
+    }),
   })
 end
 
@@ -566,6 +612,17 @@ function UIR._REMOVE_FIELD_DEF(tParams)
   return UIR._GET_CONFIG()
 end
 
+--- Pin or clear the InfluxDB type for a schema field.
+--- @param tParams table
+function UIR._SET_FIELD_TYPE(tParams)
+  log:trace("UIR.SET_FIELD_TYPE()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if params.measurement and params.name then
+    measManager:setFieldType(params.measurement, params.name, params.valueType)
+  end
+  return UIR._GET_CONFIG()
+end
+
 --- Add a tag definition to a measurement schema.
 --- @param tParams table
 function UIR._ADD_TAG_DEF(tParams)
@@ -604,7 +661,7 @@ function UIR._UPDATE_MEAS_SETTINGS(tParams)
       interval = params.interval,
       dedup = params.dedup,
       enabled = params.enabled,
-    }, subEngine)
+    }, subEngine, influxWriter)
   end
   if subEngine then
     subEngine:restartIntervalTimers()
