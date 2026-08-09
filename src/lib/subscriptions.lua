@@ -118,6 +118,7 @@ end
 --- @field _varCache table<number, table<number, VarCacheEntry>>
 --- @field _subscriptionRefs table<string, table<string, SubscriptionRef>>
 --- @field _subscribing boolean
+--- @field _pushless table<number, table<number, boolean>>
 --- @field _getMeasurements fun(): table<string, MeasurementConfig>
 --- @field _getInfluxWriter fun(): InfluxWriter|nil
 --- @field _getWriteInterval fun(): number
@@ -136,6 +137,7 @@ function SubscriptionEngine:new(opts)
   local instance = setmetatable({}, self)
   instance._varCache = {}
   instance._subscriptionRefs = {}
+  instance._pushless = {}
   instance._subscribing = false
   instance._intervalTimers = {} -- {[intervalSecs]: timerName}
   instance._getMeasurements = opts.getMeasurements or function()
@@ -153,6 +155,26 @@ end
 ---------------------------------------------------------------------------
 -- Private Methods
 ---------------------------------------------------------------------------
+
+--- Re-read a variable Director never notifies us about, and refresh its cache
+--- entry so its value and timestamp stay honest.
+---
+--- Only variables flagged by _subscribeToVariable land here. Director accepts a
+--- listener on the globals agent (100001) and then never calls back, on
+--- registration or on change, so its cache entry would otherwise hold whatever
+--- seeded it for the driver's lifetime. Measured at 0.09ms per read on a CORE 1,
+--- the same as a device variable, since it is an in-process Director lookup.
+--- @param deviceId number
+--- @param variableId number
+function SubscriptionEngine:_refreshIfPushless(deviceId, variableId)
+  if not (self._pushless[deviceId] and self._pushless[deviceId][variableId]) then
+    return
+  end
+  local ok, current = pcall(C4.GetDeviceVariable, C4, deviceId, variableId)
+  if ok and current ~= nil then
+    self:_onVariableChanged(deviceId, variableId, current)
+  end
+end
 
 --- Build and enqueue an InfluxDB data point for a single reading within a
 --- measurement. Resolves each mapping (variable or literal), applies
@@ -193,6 +215,7 @@ function SubscriptionEngine:_enqueueReadingPoint(measName, readingLabel, timesta
     elseif mapping.source == "variable" and mapping.varId then
       local devId, varId = parseVarId(mapping.varId)
       if devId and varId then
+        self:_refreshIfPushless(devId, varId)
         local cached = self._varCache[devId] and self._varCache[devId][varId]
         if not cached then
           -- If this is a field mapping, we need it before we can enqueue
@@ -335,9 +358,26 @@ function SubscriptionEngine:_subscribeToVariable(varIdStr, measName, readingLabe
     RegisterVariableListener(devId, varId, function(dId, vId, val)
       self:_onVariableChanged(dId, vId, val)
     end)
-    -- Registering delivers no value for some devices (the globals agent), and a
-    -- field with nothing cached blocks its whole reading.
+    -- Registering delivers the current value synchronously, so its absence is
+    -- the tell that Director will not notify this variable at all: it is the
+    -- one behaviour that separates the globals agent (100001) from every other
+    -- item, agents included. Seed it, or a field with nothing cached blocks its
+    -- whole reading, and flag it so _enqueueReadingPoint re-reads it per tick.
+    --
+    -- Measured, not assumed: registering silently succeeds on 100001 and then
+    -- never calls back, on registration or on change. Flagging beats hardcoding
+    -- 100001 in both directions, since it stops flagging if Control4 ever wires
+    -- the agent up, and covers anything else that behaves this way for free. A
+    -- false positive costs one 0.09ms read per tick, which is the cheap side.
     if not (self._varCache[devId] and self._varCache[devId][varId] ~= nil) then
+      self._pushless[devId] = self._pushless[devId] or {}
+      self._pushless[devId][varId] = true
+      log:info(
+        "Variable %s (%s on device %s) delivered no value on registration, re-reading it on every tick",
+        varIdStr,
+        getVariableName(devId, varId),
+        getDeviceName(devId)
+      )
       local ok, current = pcall(C4.GetDeviceVariable, C4, devId, varId)
       if ok and current ~= nil then
         self:_onVariableChanged(devId, varId, current)
@@ -377,6 +417,14 @@ function SubscriptionEngine:_cleanupVariable(varIdStr, devId, varId)
     self._varCache[devId][varId] = nil
     if not next(self._varCache[devId]) then
       self._varCache[devId] = nil
+    end
+  end
+  -- Dropped alongside the cache entry, so a re-subscribe measures again rather
+  -- than inheriting a verdict from a listener that no longer exists.
+  if self._pushless[devId] then
+    self._pushless[devId][varId] = nil
+    if not next(self._pushless[devId]) then
+      self._pushless[devId] = nil
     end
   end
 end
@@ -621,6 +669,7 @@ function SubscriptionEngine:handleDeviceRemoved(deviceId)
   if self._varCache[deviceId] then
     self._varCache[deviceId] = nil
   end
+  self._pushless[deviceId] = nil
   if cleaned > 0 then
     log:warn("Cleaned up %d variable subscription(s) for removed device %d", cleaned, deviceId)
   end

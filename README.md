@@ -332,6 +332,12 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   slow or unreachable InfluxDB no longer builds up retries it cannot clear.
 - A variable that never changes after startup is logged instead of being skipped
   indefinitely.
+- A global variable from the Variables agent is logged at its current value.
+  Control4 accepts a subscription to those variables and then never reports a
+  change, so a threshold retuned in Composer, or a count that keeps ticking, was
+  logged at whatever it held when the driver started and stayed there until the
+  driver restarted. Any variable Control4 will not report on is now read at the
+  moment it is logged.
 - Disabling a measurement stops its writes instead of leaving its buffered
   points retrying.
 - A value of zero shows in the mapping preview instead of appearing blank.
