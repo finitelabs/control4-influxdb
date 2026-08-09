@@ -7,6 +7,7 @@
 local log = require("lib.logging")
 local constants = require("constants")
 local transform = require("lib.transform")
+local InfluxWriter = require("lib.influx_writer")
 
 ---------------------------------------------------------------------------
 -- Local Helpers
@@ -53,26 +54,19 @@ local function getDeviceName(deviceId)
   return string.format("device%d", deviceId)
 end
 
---- Coerce a raw variable value to an InfluxDB value type identifier.
---- @param val any
---- @return string valueType One of "integer", "float", "string", "boolean"
-local function inferValueType(val)
-  if val == nil then
-    return constants.VALUE_TYPES.STRING
-  end
-  local s = tostring(val)
-  local low = s:lower()
-  if low == "true" or low == "false" then
-    return constants.VALUE_TYPES.BOOLEAN
-  end
-  local n = tonumber(s)
-  if n then
-    if math.floor(n) == n and math.abs(n) < 2 ^ 53 then
-      return constants.VALUE_TYPES.INTEGER
+--- Current time in epoch milliseconds, for stamping points.
+---
+--- Unstamped points take InfluxDB's receive time, which a retry backoff pushes
+--- minutes late. os.time() is only a fallback; its resolution collapses samples.
+--- @return number epochMs
+local function nowMs()
+  if C4.GetTime then
+    local ok, t = pcall(C4.GetTime, C4)
+    if ok and type(t) == "number" then
+      return t
     end
-    return constants.VALUE_TYPES.FLOAT
   end
-  return constants.VALUE_TYPES.STRING
+  return os.time() * 1000
 end
 
 --- Build a set from an array of strings.
@@ -165,7 +159,8 @@ end
 --- transforms, and enqueues via influxWriter.
 --- @param measName string
 --- @param readingLabel string
-function SubscriptionEngine:_enqueueReadingPoint(measName, readingLabel)
+--- @param timestampMs number|nil Collection time; every reading in a tick shares one.
+function SubscriptionEngine:_enqueueReadingPoint(measName, readingLabel, timestampMs)
   log:trace("SubscriptionEngine:_enqueueReadingPoint('%s', '%s')", measName, readingLabel)
   local measurements = self._getMeasurements()
   local meas = measurements[measName]
@@ -227,9 +222,12 @@ function SubscriptionEngine:_enqueueReadingPoint(measName, readingLabel)
     -- Place into fields or tags based on which def list it belongs to
     if fieldDefSet[mappingName] then
       if rawValue ~= nil then
+        -- Inference is per value, so 45.1 and 57 would type one column twice
+        -- and InfluxDB rejects the batch. The schema's pin keeps them agreeing.
+        local pinned = meas.fieldTypes and meas.fieldTypes[mappingName]
         fields[mappingName] = {
           value = rawValue,
-          type = inferValueType(rawValue),
+          type = pinned or InfluxWriter.inferValueType(rawValue),
         }
       end
     elseif tagDefSet[mappingName] then
@@ -255,7 +253,7 @@ function SubscriptionEngine:_enqueueReadingPoint(measName, readingLabel)
     interval = intervalSecs,
     dedup = meas.dedup ~= false,
     dedupKey = dedupKey,
-  })
+  }, timestampMs or nowMs())
 
   log:debug("Enqueued point for '%s::%s' via influxWriter", measName, readingLabel)
 end
@@ -333,10 +331,18 @@ function SubscriptionEngine:_subscribeToVariable(varIdStr, measName, readingLabe
   end
 
   if refCount == 1 then
-    -- First subscriber for this variable — register the listener
+    -- First subscriber for this variable, register the listener
     RegisterVariableListener(devId, varId, function(dId, vId, val)
       self:_onVariableChanged(dId, vId, val)
     end)
+    -- Registering delivers no value for some devices (the globals agent), and a
+    -- field with nothing cached blocks its whole reading.
+    if not (self._varCache[devId] and self._varCache[devId][varId] ~= nil) then
+      local ok, current = pcall(C4.GetDeviceVariable, C4, devId, varId)
+      if ok and current ~= nil then
+        self:_onVariableChanged(devId, varId, current)
+      end
+    end
     log:info(
       "Subscribed to variable %s (%s on device %s) for '%s::%s' mapping '%s' as %s",
       varIdStr,
@@ -562,8 +568,9 @@ function SubscriptionEngine:_startIntervalTimers()
       local timerName = "InfluxInterval_" .. secs
       self._intervalTimers[secs] = timerName
       SetTimer(timerName, secs * 1000, function()
+        local tickMs = nowMs()
         for _, r in ipairs(readings) do
-          self:_enqueueReadingPoint(r.measName, r.readingLabel)
+          self:_enqueueReadingPoint(r.measName, r.readingLabel, tickMs)
         end
         local writer = self._getInfluxWriter()
         if writer then

@@ -125,8 +125,14 @@
     tr:hover td { background: var(--surface-hover); }
 
     .chip {
-      display: inline-block; padding: 1px 7px; border-radius: 10px;
-      font-size: 10px; font-weight: 600;
+      display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+      vertical-align: middle; padding: 1px 7px; border-radius: 10px;
+      font-size: 10px; font-weight: 600; max-width: 100%; min-width: 0;
+    }
+    /* Long field names clipped mid-word against the chip's rounded edge with no
+       hint they were cut. Ellipsise instead, full name on the title. */
+    .chip-label {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
     }
     .chip-field { background: #dbeafe; color: #1d4ed8; }
     .chip-tag { background: #d1fae5; color: #059669; }
@@ -166,7 +172,7 @@
     }
     .mapping-row {
       display: grid;
-      grid-template-columns: 84px 76px minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,120px);
+      grid-template-columns: 132px 76px minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,120px);
       gap: 6px; align-items: center;
       padding: 5px 0; border-bottom: 1px solid var(--border);
       font-size: 12px;
@@ -179,7 +185,7 @@
     /* Narrow panes: drop transform + preview onto a second line. */
     @media (max-width: 880px) {
       .mapping-row {
-        grid-template-columns: 84px 76px minmax(0,1fr) minmax(0,1fr);
+        grid-template-columns: 132px 76px minmax(0,1fr) minmax(0,1fr);
         row-gap: 4px;
       }
       .mapping-row .mapping-transform { grid-column: 2 / 4; }
@@ -240,6 +246,25 @@
     .search-select-item { padding: 4px 8px; cursor: pointer; font-size: 12px; }
     .search-select-item:hover { background: var(--surface-hover); }
     .search-select-item.selected { background: #dbeafe; }
+    /* Schema entries are rows, not pills: field names run to 20+ characters and
+       a pill wide enough for one plus a type control leaves the name as "hu...". */
+    .schema-list { display: flex; flex-direction: column; gap: 3px; }
+    .schema-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 3px 4px 3px 9px; border-radius: 6px;
+      font-size: 11px; font-weight: 600;
+    }
+    .schema-item .chip-label { flex: 1 1 auto; }
+    .chip-type {
+      /* The base select rule is width:100%, which a flex-basis of auto adopts
+         and which squeezes the name to nothing. */
+      flex: 0 0 auto; width: auto; border: none; background: transparent;
+      color: inherit; cursor: pointer; font: inherit; font-weight: 400;
+      padding: 0 2px; margin: 0; opacity: 0.75;
+    }
+    .chip-type:hover, .chip-type:focus { opacity: 1; }
+    .chip-x { flex: 0 0 auto; cursor: pointer; opacity: 0.45; font-weight: 700; padding: 0 4px; }
+    .chip-x:hover { opacity: 1; }
     .search-select-section {
       padding: 4px 8px 2px; font-size: 9.5px; font-weight: 700;
       letter-spacing: 0.6px; text-transform: uppercase; color: #9ca3af;
@@ -331,19 +356,19 @@
       <div class="grid-2">
         <div>
           <label>Fields</label>
-          <div id="schema-fields" class="mb-8"></div>
-          <div class="flex gap-8">
+          <div class="flex gap-8 mb-8">
             <input type="text" id="new-field-name" placeholder="Field name" style="margin:0;flex:1;" oninput="this.classList.remove('input-error');this.title='';"/>
             <button class="btn btn-outline btn-sm" onclick="addFieldDef()">Add</button>
           </div>
+          <div id="schema-fields"></div>
         </div>
         <div>
           <label>Tags</label>
-          <div id="schema-tags" class="mb-8"></div>
-          <div class="flex gap-8">
+          <div class="flex gap-8 mb-8">
             <input type="text" id="new-tag-name" placeholder="Tag name" style="margin:0;flex:1;" oninput="this.classList.remove('input-error');this.title='';"/>
             <button class="btn btn-outline btn-sm" onclick="addTagDef()">Add</button>
           </div>
+          <div id="schema-tags"></div>
         </div>
       </div>
     </div>
@@ -515,7 +540,10 @@ function handleDriverData(cmd, params) {
     else if (cmd === 'SETTINGS_DATA') onSettingsLoaded(JSON.parse(params.settings || '{}'));
     else if (cmd === 'DEVICES_DATA') onDevicesLoaded(JSON.parse(params.devices || '[]'));
     else if (cmd === 'DEVICE_VARIABLES_DATA') onDeviceVariablesLoaded(params.deviceId, JSON.parse(params.variables || '[]'));
-    else if (cmd === 'TRANSFORM_RESULT') onTransformResult(params.id, params.result, params.error);
+    else if (cmd === 'TRANSFORM_RESULT') {
+      var tr = JSON.parse(params.payload || '{}');
+      onTransformResult(tr.id, tr.result, tr.error);
+    }
   } catch (e) { console.error('handleDriverData:', cmd, e); }
 }
 
@@ -792,13 +820,26 @@ function renderMeasEditor(name) {
   document.getElementById('meas-enabled').value = m.enabled !== false ? 'true' : 'false';
 
   var fh = (m.fieldDefs||[]).map(function(f) {
-    return '<span class="chip chip-field" style="margin:2px;">'+esc(f)+' <span style="cursor:pointer;opacity:0.5;" onclick="removeFieldDef(\''+esc(f)+'\')">&times;</span></span>';
-  }).join('') || '<span style="color:var(--text-muted)">None</span>';
+    var t = (m.fieldTypes||{})[f] || '';
+    var opts = ['','float','integer','string','boolean'].map(function(o) {
+      var lbl = o === '' ? 'Auto' : o.charAt(0).toUpperCase()+o.slice(1);
+      return '<option value="'+o+'"'+(o===t?' selected':'')+'>'+lbl+'</option>';
+    }).join('');
+    return '<div class="schema-item chip-field" title="'+esc(f)+'">'+
+      '<span class="chip-label">'+esc(f)+'</span>'+
+      '<select class="chip-type" title="InfluxDB column type. A column has one type, so it is set here rather than per reading. Auto infers from each value." '+
+      'onchange="setFieldType(\''+esc(f)+'\', this.value)">'+opts+'</select>'+
+      '<span class="chip-x" onclick="removeFieldDef(\''+esc(f)+'\')">&times;</span></div>';
+  }).join('');
+  fh = fh ? '<div class="schema-list">'+fh+'</div>' : '<span style="color:var(--text-muted)">None</span>';
   document.getElementById('schema-fields').innerHTML = fh;
 
   var th = (m.tagDefs||[]).map(function(t) {
-    return '<span class="chip chip-tag" style="margin:2px;">'+esc(t)+' <span style="cursor:pointer;opacity:0.5;" onclick="removeTagDef(\''+esc(t)+'\')">&times;</span></span>';
-  }).join('') || '<span style="color:var(--text-muted)">None</span>';
+    return '<div class="schema-item chip-tag" title="'+esc(t)+'">'+
+      '<span class="chip-label">'+esc(t)+'</span>'+
+      '<span class="chip-x" onclick="removeTagDef(\''+esc(t)+'\')">&times;</span></div>';
+  }).join('');
+  th = th ? '<div class="schema-list">'+th+'</div>' : '<span style="color:var(--text-muted)">None</span>';
   document.getElementById('schema-tags').innerHTML = th;
 
   renderReadings(name, m);
@@ -821,6 +862,7 @@ function addSchemaItem(inputId, cmd, paramName) {
   v.value = '';
 }
 function addFieldDef() { addSchemaItem('new-field-name', '_ADD_FIELD_DEF', 'name'); }
+function setFieldType(n, t) { if(gEditingMeas) sendCommand('_SET_FIELD_TYPE',{measurement:gEditingMeas,name:n,valueType:t||null}); }
 function addTagDef() { addSchemaItem('new-tag-name', '_ADD_TAG_DEF', 'name'); }
 function removeFieldDef(n) { if(gEditingMeas) sendCommand('_REMOVE_FIELD_DEF',{measurement:gEditingMeas,name:n}); }
 function removeTagDef(n) { if(gEditingMeas) sendCommand('_REMOVE_TAG_DEF',{measurement:gEditingMeas,name:n}); }
@@ -882,7 +924,8 @@ function renderReadings(measName, meas) {
       html += '<div class="mapping-row">';
 
       // Col 1: Name chip
-      html += '<span class="chip '+(isField?'chip-field':'chip-tag')+'">'+esc(defName)+'</span>';
+      html += '<span class="chip '+(isField?'chip-field':'chip-tag')+'" title="'+esc(defName)+'">'+
+        '<span class="chip-label">'+esc(defName)+'</span></span>';
 
       // Col 2: Source selector
       html += '<select id="src_'+mid+'" onchange="onSourceChange(\''+eid+'\',\''+escId(defName)+'\')" style="margin:0;padding:2px;">';
@@ -918,17 +961,10 @@ function renderReadings(measName, meas) {
 
       // Col 5: Live preview (evaluated server-side)
       var curVal = resolveCurrentValue(mapping);
+      var pinnedType = isField ? ((meas.fieldTypes||{})[defName] || '') : '';
       html += '<span id="preview_'+mid+'" class="mapping-preview" style="color:var(--text-muted);"></span>';
       if (curVal !== null) {
-        if (mapping.transform) {
-          evalTransform('preview_'+mid, mapping.transform, curVal);
-        } else {
-          // No transform — show raw value after render
-          (function(id, v) { setTimeout(function() {
-            var el = document.getElementById(id);
-            if (el) { el.innerHTML = '= <b style="color:var(--text);">'+esc(v)+'</b>'; el.title = v; }
-          }, 0); })('preview_'+mid, curVal);
-        }
+        previewValue('preview_'+mid, mapping.transform, curVal, isField?'field':'tag', pinnedType);
       }
 
       html += '</div>';
@@ -998,10 +1034,15 @@ function filterDeviceSearch(mid, query, isTagPicker) {
   // Device Tags only needs the item to exist; a mapping row must bind a
   // variable. The caller says which -- a reading label can escId into `dt_`.
   var html = '';
+  var lastSection = null;
   gDevices.forEach(function(d) {
     if (!isTagPicker && d.hasVariables === false) return;
     var label = d.displayName || d.name || ('Device ' + d.id);
     if (q && label.toLowerCase().indexOf(q) < 0) return;
+    if (d.section && d.section !== lastSection) {
+      html += '<div class="search-select-section">'+esc(d.section)+'</div>';
+      lastSection = d.section;
+    }
     var cls = String(d.id) === selDevId ? ' selected' : '';
     html += '<div class="search-select-item'+cls+'" onclick="selectDevice(\''+mid+'\',\''+d.id+'\',\''+esc(label).replace(/'/g,"\\'")+'\','+(isTagPicker?'true':'false')+')">'+esc(label)+'</div>';
   });
@@ -1100,8 +1141,17 @@ function onReadingDeviceTags(readingId, deviceId) {
 }
 
 // Request server-side transform evaluation
-function evalTransform(previewId, expr, rawValue) {
-  sendCommand('_EVAL_TRANSFORM', { id: previewId, expression: expr, value: rawValue });
+function evalTransform(previewId, expr, rawValue, kind, valueType) {
+  sendCommand('_EVAL_TRANSFORM', {
+    id: previewId, expression: expr, value: rawValue,
+    kind: kind || '', valueType: valueType || ''
+  });
+}
+
+// A field with no transform still round-trips: the driver is what knows the
+// pinned type, and without it "0" and 0 look identical in the preview.
+function previewValue(previewId, expr, rawValue, kind, valueType) {
+  evalTransform(previewId, expr || '', rawValue, kind, valueType);
 }
 
 function onTransformResult(id, result, error) {
@@ -1110,9 +1160,10 @@ function onTransformResult(id, result, error) {
   if (error) {
     el.innerHTML = '<span style="cursor:help;" title="'+esc(error)+'">&#9888; '+esc(error.substring(0,30))+'</span>';
     el.style.color = 'var(--danger)';
-    // Also mark the transform input
+    // Only blame the Transform box when there is one. A pinned-type mismatch on
+    // a mapping with an empty box is the schema's fault, not the transform's.
     var tfmEl = document.getElementById(id.replace('preview_','tfm_'));
-    if (tfmEl) { tfmEl.style.borderColor = 'var(--danger)'; tfmEl.title = error; }
+    if (tfmEl && tfmEl.value) { tfmEl.style.borderColor = 'var(--danger)'; tfmEl.title = error; }
   } else if (result !== '') {
     el.innerHTML = '= <b style="color:var(--text);">'+esc(result)+'</b>';
     el.title = result;
@@ -1135,17 +1186,15 @@ function onTransformInput(mid, readingId, mappingId) {
     var reading = (m.readings || {})[unescId(readingId)]; if (!reading) return;
     var mapping = (reading.mappings || {})[unescId(mappingId)] || {};
     var curVal = resolveCurrentValue(mapping);
-    if (curVal === null) curVal = '0'; // fallback for preview
+    // No fabricated fallback: previewing an unresolvable mapping as a confident
+    // "0i" is worse than showing nothing.
+    if (curVal === null) { previewEl.innerHTML = ''; tfmEl.style.borderColor = ''; tfmEl.title = ''; return; }
+    if (!expr) { tfmEl.style.borderColor = ''; tfmEl.title = ''; }
 
-    if (!expr) {
-      tfmEl.style.borderColor = '';
-      tfmEl.title = '';
-      previewEl.innerHTML = curVal !== null ? '= <b style="color:var(--text);">'+esc(curVal)+'</b>' : '';
-      previewEl.style.color = 'var(--text-muted)';
-      return;
-    }
-
-    evalTransform(previewEl.id, expr, curVal);
+    var mLive = gConfig[gEditingMeas] || {};
+    var isFieldL = (mLive.fieldDefs||[]).indexOf(unescId(mappingId)) >= 0;
+    previewValue(previewEl.id, expr, curVal, isFieldL?'field':'tag',
+      isFieldL ? ((mLive.fieldTypes||{})[unescId(mappingId)] || '') : '');
   }, 300);
 }
 
@@ -1171,8 +1220,11 @@ function resolveCurrentValue(mapping) {
   return String(raw);
 }
 
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-function escId(s) { return String(s||'').replace(/[^a-zA-Z0-9_]/g,'_'); }
+// s||'' would blank out 0 and false, which is how every preview of a value that
+// computed to 0 rendered as a bare "=" with nothing after it.
+function str(s) { return (s === null || s === undefined) ? '' : String(s); }
+function esc(s) { return str(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function escId(s) { return str(s).replace(/[^a-zA-Z0-9_]/g,'_'); }
 function unescId(id) {
   if (!gEditingMeas || !gConfig[gEditingMeas]) return id;
   var m = gConfig[gEditingMeas];
@@ -1282,12 +1334,9 @@ function onDeviceVariablesLoaded(deviceId, vars) {
       var curVal = resolveCurrentValue(mapping);
       if (curVal === null) return;
       var previewId = 'preview_' + mid;
-      if (mapping.transform) {
-        evalTransform(previewId, mapping.transform, curVal);
-      } else {
-        var el = document.getElementById(previewId);
-        if (el) { el.innerHTML = '= <b style="color:var(--text);">'+esc(curVal)+'</b>'; el.title = curVal; }
-      }
+      var isFieldM = (meas.fieldDefs||[]).indexOf(defName) >= 0;
+      previewValue(previewId, mapping.transform, curVal, isFieldM?'field':'tag',
+        isFieldM ? ((meas.fieldTypes||{})[defName] || '') : '');
     });
   }
 }

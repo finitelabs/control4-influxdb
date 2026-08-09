@@ -51,6 +51,29 @@ local function escapeFieldString(s)
   return '"' .. s .. '"'
 end
 
+--- Infer an InfluxDB value type from a raw value. Beside formatFieldValue so
+--- the write path and the UI's preview cannot disagree.
+--- @param val any
+--- @return string valueType One of "integer", "float", "string", "boolean"
+function InfluxWriter.inferValueType(val)
+  if val == nil then
+    return constants.VALUE_TYPES.STRING
+  end
+  local s = tostring(val)
+  local low = s:lower()
+  if low == "true" or low == "false" then
+    return constants.VALUE_TYPES.BOOLEAN
+  end
+  local n = tonumber(s)
+  if n then
+    if math.floor(n) == n and math.abs(n) < 2 ^ 53 then
+      return constants.VALUE_TYPES.INTEGER
+    end
+    return constants.VALUE_TYPES.FLOAT
+  end
+  return constants.VALUE_TYPES.STRING
+end
+
 --- Coerce and format a field value for InfluxDB line protocol.
 --- @param value any
 --- @param valueType string One of "integer", "float", "string", "boolean"
@@ -94,6 +117,9 @@ local function formatFieldValue(value, valueType)
     return nil, string.format("unknown value type '%s'", tostring(valueType))
   end
 end
+
+--- Exposed so the preview types a value the way the write path does.
+InfluxWriter.formatFieldValue = formatFieldValue
 
 --- Build a single InfluxDB line protocol string.
 --- @param measurement string   Measurement name
@@ -267,7 +293,8 @@ function InfluxWriter:new(opts)
   instance._onWriteError = opts.onWriteError
   instance._onBufferFull = opts.onBufferFull
 
-  --- Per-measurement state: { buffer=[], timer=id, lastValues={}, lastFlushTime=0 }
+  --- Per-buffer state keyed by measurement and interval (see stateKeyFor), so
+  --- one flush carries every reading sharing a measurement and a schedule.
   --- @type table<string, table>
   instance._measurements = {}
 
@@ -280,31 +307,46 @@ function InfluxWriter:new(opts)
     lastWriteTimestamp = 0,
   }
 
-  --- Whether a global write is in flight (prevents overlapping flushes)
-  instance._writing = false
-
   return instance
 end
 
---- Get or create per-measurement state.
+--- Buffer key for a measurement written on a given schedule.
+---
+--- Not keyed per reading: that made a tick issue one HTTP request per reading,
+--- which saturated the controller's HTTP client and timed the writes out.
 --- @param measurementName string
+--- @param intervalSecs number|nil
+--- @return string stateKey
+local function stateKeyFor(measurementName, intervalSecs)
+  return measurementName .. "@" .. tostring(intervalSecs or constants.DEFAULT_WRITE_INTERVAL)
+end
+
+--- Get or create per-buffer state.
+--- @param stateKey string From stateKeyFor().
+--- @param measurementName string The name the buffer belongs to.
 --- @param intervalSecs number
 --- @param maxBuffer number
 --- @param dedupEnabled boolean
 --- @return table state
-function InfluxWriter:_getMeasurementState(measurementName, intervalSecs, maxBuffer, dedupEnabled)
-  if not self._measurements[measurementName] then
-    self._measurements[measurementName] = {
+function InfluxWriter:_getMeasurementState(stateKey, measurementName, intervalSecs, maxBuffer, dedupEnabled)
+  if not self._measurements[stateKey] then
+    self._measurements[stateKey] = {
+      -- Kept so buffers can be found by name. Matching on a stateKey prefix
+      -- instead would let a measurement called "power" claim "power@rack".
+      measurementName = measurementName,
       buffer = {},
       timerName = nil,
-      lastValues = {}, -- field key -> last flushed value (for dedup)
+      -- dedup scope -> field key -> last buffered value. Scoped per reading:
+      -- readings share a buffer and would otherwise dedup against each other.
+      lastValues = {},
       lastFlushTime = 0,
+      inFlight = false,
       intervalSecs = intervalSecs or constants.DEFAULT_WRITE_INTERVAL,
       maxBuffer = maxBuffer or constants.MAX_BUFFER_SIZE,
       dedupEnabled = dedupEnabled ~= false, -- default true
     }
   end
-  return self._measurements[measurementName]
+  return self._measurements[stateKey]
 end
 
 --- Update driver variables with current metrics via the values lib.
@@ -326,8 +368,9 @@ end
 --- @param timestampMs number|nil
 function InfluxWriter:enqueue(measurementName, tags, fields, opts, timestampMs)
   opts = opts or {}
-  local stateKey = opts.dedupKey or measurementName
-  local state = self:_getMeasurementState(stateKey, opts.interval, opts.maxBuffer, opts.dedup)
+  local stateKey = stateKeyFor(measurementName, opts.interval)
+  local dedupScope = opts.dedupKey or measurementName
+  local state = self:_getMeasurementState(stateKey, measurementName, opts.interval, opts.maxBuffer, opts.dedup)
 
   -- Build the line first (so we can check dedup before buffering)
   local line, err = InfluxWriter.buildLine(measurementName, tags, fields, timestampMs)
@@ -343,16 +386,18 @@ function InfluxWriter:enqueue(measurementName, tags, fields, opts, timestampMs)
     dedupActive = opts.dedup
   end
   if dedupActive then
-    local changed = false
-    for fieldKey, fieldDef in pairs(fields) do
-      local lastVal = state.lastValues[fieldKey]
-      if lastVal ~= tostring(fieldDef.value) then
-        changed = true
-        break
+    local lastValues = state.lastValues[dedupScope]
+    local changed = lastValues == nil
+    if not changed then
+      for fieldKey, fieldDef in pairs(fields) do
+        if lastValues[fieldKey] ~= tostring(fieldDef.value) then
+          changed = true
+          break
+        end
       end
     end
     if not changed then
-      log:trace("InfluxWriter.enqueue: dedup skip for '%s' (no value change)", measurementName)
+      log:trace("InfluxWriter.enqueue: dedup skip for '%s' (no value change)", dedupScope)
       return
     end
   end
@@ -373,9 +418,11 @@ function InfluxWriter:enqueue(measurementName, tags, fields, opts, timestampMs)
   self:_updateMetricVariables()
 
   -- Store last seen values for next dedup check
+  local lastValues = state.lastValues[dedupScope] or {}
   for fieldKey, fieldDef in pairs(fields) do
-    state.lastValues[fieldKey] = tostring(fieldDef.value)
+    lastValues[fieldKey] = tostring(fieldDef.value)
   end
+  state.lastValues[dedupScope] = lastValues
 
   log:trace("InfluxWriter.enqueue: buffered point for '%s' (%d in buffer)", stateKey, #state.buffer)
 end
@@ -400,11 +447,20 @@ function InfluxWriter:_armFlushTimer(stateKey, state)
 end
 
 --- Flush a single measurement's buffer to InfluxDB.
+---
+--- Never more than one request outstanding per buffer: overlapping flushes fed
+--- the load that caused their own timeouts. Callers wanting an immediate flush
+--- cancel the armed timer first; there is no flag to bypass this.
 --- @param stateKey string
---- @param force boolean|nil  If true, flush even if writing in flight
-function InfluxWriter:_flushMeasurement(stateKey, force)
+function InfluxWriter:_flushMeasurement(stateKey)
   local state = self._measurements[stateKey]
   if not state or #state.buffer == 0 then
+    return
+  end
+
+  if state.inFlight then
+    log:debug("InfluxWriter: flush for '%s' already in flight, re-arming", stateKey)
+    self:_armFlushTimer(stateKey, state)
     return
   end
 
@@ -441,11 +497,13 @@ function InfluxWriter:_flushMeasurement(stateKey, force)
   self._metrics.pointsBuffered = math.max(0, self._metrics.pointsBuffered - batchSize)
 
   state.lastFlushTime = os.time()
+  state.inFlight = true
 
   log:info("InfluxWriter: flushing %d points for '%s' (%d remaining)", batchSize, stateKey, #state.buffer)
 
   InfluxWriter.postBatch(url, cfg.token or "", batch)
     :next(function(result)
+      state.inFlight = false
       self._metrics.pointsWritten = self._metrics.pointsWritten + batchSize
       self._metrics.lastWriteTimestamp = os.time()
       self:_updateMetricVariables()
@@ -453,8 +511,14 @@ function InfluxWriter:_flushMeasurement(stateKey, force)
       if self._onConnected then
         pcall(self._onConnected, true)
       end
+
+      -- Left by a MAX_BATCH_SIZE cap or enqueued mid-request.
+      if #state.buffer > 0 then
+        self:_armFlushTimer(stateKey, state)
+      end
     end)
     :next(nil, function(err)
+      state.inFlight = false
       self._metrics.writeErrors = self._metrics.writeErrors + 1
       self:_updateMetricVariables()
 
@@ -511,24 +575,24 @@ function InfluxWriter:forceFlushAll()
       state.timerName = nil
     end
     if #state.buffer > 0 then
-      self:_flushMeasurement(name, true)
+      self:_flushMeasurement(name)
     end
   end
 end
 
---- Force-flush a single measurement buffer.
+--- Force-flush a measurement's buffers immediately, across every interval it
+--- has readings on.
 --- @param measurementName string
 function InfluxWriter:forceFlush(measurementName)
-  local state = self._measurements[measurementName]
-  if not state then
-    return
+  for stateKey, state in pairs(self._measurements) do
+    if state.measurementName == measurementName then
+      if state.timerName then
+        CancelTimer(state.timerName)
+        state.timerName = nil
+      end
+      self:_flushMeasurement(stateKey)
+    end
   end
-
-  if state.timerName then
-    CancelTimer(state.timerName)
-    state.timerName = nil
-  end
-  self:_flushMeasurement(measurementName, true)
 end
 
 --- Stop all flush timers and flush all buffers (call on driver shutdown).
@@ -547,27 +611,39 @@ function InfluxWriter:shutdown()
   self:forceFlushAll()
 end
 
---- Remove a measurement from the batch engine (cancel timer, discard buffer).
+--- Remove a measurement from the batch engine (cancel timers, discard buffers).
+--- Drops every buffer: readings on different intervals hold one each.
 --- @param measurementName string
 function InfluxWriter:removeMeasurement(measurementName)
-  local state = self._measurements[measurementName]
-  if not state then
-    return
-  end
+  for stateKey, state in pairs(self._measurements) do
+    if state.measurementName == measurementName then
+      if state.timerName then
+        CancelTimer(state.timerName)
+      end
 
-  if state.timerName then
-    CancelTimer(state.timerName)
-  end
+      local discarded = #state.buffer
+      if discarded > 0 then
+        log:warn("InfluxWriter: discarding %d buffered points for removed measurement '%s'", discarded, stateKey)
+        self._metrics.pointsBuffered = math.max(0, self._metrics.pointsBuffered - discarded)
+        self._metrics.pointsDropped = self._metrics.pointsDropped + discarded
+        self:_updateMetricVariables()
+      end
 
-  local discarded = #state.buffer
-  if discarded > 0 then
-    log:warn("InfluxWriter: discarding %d buffered points for removed measurement '%s'", discarded, measurementName)
-    self._metrics.pointsBuffered = math.max(0, self._metrics.pointsBuffered - discarded)
-    self._metrics.pointsDropped = self._metrics.pointsDropped + discarded
-    self:_updateMetricVariables()
+      self._measurements[stateKey] = nil
+    end
   end
+end
 
-  self._measurements[measurementName] = nil
+--- Forget a reading's dedup history, so a reading re-added with the same label
+--- is not deduped against the values the old one last wrote.
+--- @param measurementName string
+--- @param dedupScope string The reading's dedup key, as passed to enqueue().
+function InfluxWriter:removeReading(measurementName, dedupScope)
+  for _, state in pairs(self._measurements) do
+    if state.measurementName == measurementName then
+      state.lastValues[dedupScope] = nil
+    end
+  end
 end
 
 --- Return current metrics snapshot.

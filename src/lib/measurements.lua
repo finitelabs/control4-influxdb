@@ -23,6 +23,9 @@ local persist = require("lib.persist")
 
 --- @class MeasurementConfig
 --- @field fieldDefs string[] Ordered field names, e.g. {"level", "voltage"}.
+--- @field fieldTypes table<string, string>|nil field name -> InfluxDB type.
+--- On the schema because a column has one type: per reading, readings could
+--- disagree and InfluxDB rejects the batch. Absent means infer per value.
 --- @field tagDefs string[] Ordered tag names, e.g. {"device_name"}.
 --- @field readings table<string, ReadingDef> label -> reading definition.
 --- @field interval string Write interval display string.
@@ -115,6 +118,7 @@ function MeasurementManager:add(name)
 
   self._measurements[name] = {
     fieldDefs = {},
+    fieldTypes = {},
     tagDefs = {},
     readings = {},
     interval = "Default",
@@ -142,11 +146,7 @@ function MeasurementManager:remove(name, subEngine, influxWriter)
   end
 
   if influxWriter then
-    -- Remove all reading-keyed buffers for this measurement
-    local meas = self._measurements[name]
-    for readingLabel in pairs(meas.readings or {}) do
-      influxWriter:removeMeasurement(name .. "::" .. readingLabel)
-    end
+    influxWriter:removeMeasurement(name)
   end
 
   self._measurements[name] = nil
@@ -158,7 +158,8 @@ end
 --- @param name string
 --- @param settings table Partial settings to merge: {interval?, enabled?, dedup?}
 --- @param subEngine SubscriptionEngine|nil
-function MeasurementManager:updateSettings(name, settings, subEngine)
+--- @param influxWriter InfluxWriter|nil
+function MeasurementManager:updateSettings(name, settings, subEngine, influxWriter)
   log:trace("MeasurementManager:updateSettings('%s')", name)
   local meas = self._measurements[name]
   if not meas then
@@ -181,6 +182,11 @@ function MeasurementManager:updateSettings(name, settings, subEngine)
       else
         subEngine:unsubscribeFromMeasurement(name)
       end
+    end
+    -- Disabling only stops new points; without this the buffers stay behind and
+    -- their retry timers keep writing.
+    if not settings.enabled and influxWriter then
+      influxWriter:removeMeasurement(name)
     end
   end
 
@@ -222,6 +228,25 @@ function MeasurementManager:addFieldDef(measName, fieldName)
   return true
 end
 
+--- Pin the InfluxDB type for a schema field, or clear it to resume inferring.
+--- @param measName string
+--- @param fieldName string
+--- @param valueType string|nil One of "float", "integer", "string", "boolean".
+--- @return boolean success
+function MeasurementManager:setFieldType(measName, fieldName, valueType)
+  log:trace("MeasurementManager:setFieldType('%s', '%s', '%s')", measName, fieldName, tostring(valueType))
+  local meas = self._measurements[measName]
+  if not meas then
+    return false
+  end
+
+  meas.fieldTypes = meas.fieldTypes or {}
+  meas.fieldTypes[fieldName] = IsEmpty(valueType) and nil or valueType
+  self:_save()
+  log:info("Set type of field '%s' in measurement '%s' to %s", fieldName, measName, tostring(valueType))
+  return true
+end
+
 --- Remove a field name from the measurement schema.
 --- Also removes the corresponding mapping from all readings.
 --- @param measName string
@@ -241,6 +266,9 @@ function MeasurementManager:removeFieldDef(measName, fieldName, subEngine)
     end
   end
   meas.fieldDefs = newDefs
+  if meas.fieldTypes then
+    meas.fieldTypes[fieldName] = nil
+  end
 
   -- Remove from all readings
   for _, reading in pairs(meas.readings) do
@@ -369,7 +397,7 @@ function MeasurementManager:removeReading(measName, label, subEngine, influxWrit
   end
 
   if influxWriter then
-    influxWriter:removeMeasurement(measName .. "::" .. label)
+    influxWriter:removeReading(measName, measName .. "::" .. label)
   end
 
   meas.readings[label] = nil
@@ -479,9 +507,7 @@ function MeasurementManager:applyMeasurementConfig(measName, config, subEngine, 
 
   -- Remove old writer buffers
   if self._measurements[measName] and influxWriter then
-    for readingLabel in pairs(self._measurements[measName].readings or {}) do
-      influxWriter:removeMeasurement(measName .. "::" .. readingLabel)
-    end
+    influxWriter:removeMeasurement(measName)
   end
 
   self._measurements[measName] = config

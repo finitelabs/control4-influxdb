@@ -312,8 +312,29 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+### Added
+
+- A schema field can pin its InfluxDB type instead of inferring it from each
+  value, so a measurement whose readings mix whole and fractional numbers is no
+  longer rejected. The mapping preview shows the pinned type, so `0`, `0.0`,
+  `"0"` and `false` are told apart and a lossy pin is visible before saving.
+- Agents are listed in the device picker under their own heading, so variables
+  that live on an agent, such as Composer global variables, can be logged.
+
 ### Fixed
 
+- All of a measurement's readings on the same schedule are sent in one write,
+  instead of one request per reading saturating the controller until writes
+  timed out.
+- Points carry the time they were read, rather than the time the write arrived,
+  which drifted by minutes whenever a write was retried.
+- A measurement no longer starts a write while one is still outstanding, so a
+  slow or unreachable InfluxDB no longer builds up retries it cannot clear.
+- A variable that never changes after startup is logged instead of being skipped
+  indefinitely.
+- Disabling a measurement stops its writes instead of leaving its buffered
+  points retrying.
+- A value of zero shows in the mapping preview instead of appearing blank.
 - A device's own variables are always listed before its proxies' in the variable
   picker.
 - Device and variable dropdowns in the measurement editor are no longer cut off
