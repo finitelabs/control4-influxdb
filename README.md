@@ -330,6 +330,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   which drifted by minutes whenever a write was retried.
 - A measurement no longer starts a write while one is still outstanding, so a
   slow or unreachable InfluxDB no longer builds up retries it cannot clear.
+- Reloading or removing the driver while InfluxDB is unreachable stops cleanly
+  instead of erroring during shutdown.
 - A variable that never changes after startup is logged instead of being skipped
   indefinitely.
 - Disabling a measurement stops its writes instead of leaving its buffered
