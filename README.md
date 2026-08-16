@@ -138,7 +138,13 @@ column.
 1. **Back to Measurements** - return to the list view
 1. **Schema** - define the InfluxDB columns. Add **fields** (numeric data like
    `level`, `temperature`) and **tags** (string labels like `device_name`,
-   `room_name`). Use the input boxes and **Add** buttons to create them.
+   `room_name`). Use the input boxes and **Add** buttons to create them. Each
+   field row carries a **type** selector - `Auto`, `Float`, `Integer`, `String`
+   or `Boolean`. `Auto` infers the type from each value, which types a column
+   twice if its readings mix whole and fractional numbers, and InfluxDB rejects
+   the write. Pinning a type keeps every reading agreeing. The type belongs to
+   the column, so it is set here rather than per reading. Tags are always
+   strings and have no type selector.
 1. **Settings** - **Write Interval** controls how often data is sent (use
    `Default` to inherit the global interval). **Dedup** skips writes when values
    haven't changed. **Enabled** toggles data collection.
@@ -154,7 +160,10 @@ column.
    - **Device** - searchable picker for the Control4 device (Variable only)
    - **Variable** - the device variable to read (Variable only)
    - **Transform** - optional Lua expression (see [Transforms](#transforms))
-   - **Preview** - live result evaluated on the controller
+   - **Preview** - live result evaluated on the controller, shown the way it
+     will be written. A field previews under its schema type, so `0`, `0.0`,
+     `"0"` and `false` are told apart, and a type the value cannot be coerced
+     into shows an error here before the reading is saved.
 
 ##### Transforms
 
