@@ -5,6 +5,9 @@
 
 local log = require("lib.logging")
 
+require("drivers-common-public.global.lib")
+require("lib.utils")
+
 --- @class Agents
 local Agents = {}
 

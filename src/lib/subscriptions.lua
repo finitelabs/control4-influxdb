@@ -9,6 +9,9 @@ local constants = require("constants")
 local transform = require("lib.transform")
 local InfluxWriter = require("lib.influx_writer")
 
+require("drivers-common-public.global.handlers")
+require("drivers-common-public.global.timer")
+
 ---------------------------------------------------------------------------
 -- Local Helpers
 ---------------------------------------------------------------------------
