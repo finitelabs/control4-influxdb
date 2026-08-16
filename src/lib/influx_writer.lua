@@ -5,6 +5,8 @@ local constants = require("constants")
 local Deferred = require("deferred")
 local values = require("lib.values")
 
+require("drivers-common-public.global.timer")
+
 ---------------------------------------------------------------------------
 -- Module
 ---------------------------------------------------------------------------
