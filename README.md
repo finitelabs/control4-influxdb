@@ -319,6 +319,20 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
+## Unreleased
+
+### Fixed
+
+- Fixed a failing write retrying every 5 seconds indefinitely against a down or
+  overloaded InfluxDB. Retries now climb the intended backoff ladder, from 5
+  seconds up to 15 minutes, and reset once a write succeeds.
+- Fixed a lost HTTP response silently stopping all writes for a measurement
+  until the driver was reloaded, its buffer filling and then dropping points. A
+  watchdog now clears a flush left stuck in flight, re-queues its points,
+  resumes writing, and counts each recovery in a new metric.
+- Fixed a buffer flush being re-armed while the driver was shutting down, so a
+  timer could fire into a driver that was already being removed or reloaded.
+
 ## v20260816 - 2026-08-16
 
 ### Added
