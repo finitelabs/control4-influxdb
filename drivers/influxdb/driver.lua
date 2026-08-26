@@ -641,7 +641,7 @@ end
 -- that subscriptions require (varId = "deviceId:variableId"), so this must run
 -- on the controller rather than from any offline tool.
 
--- Variable names confirmed from live lab discovery (Fishers project).
+-- Variable names confirmed against live Control4 OS 3.x systems.
 local AUTO = {
   SECURITY    = { "PARTITION_STATE" },
   LIGHT_ON    = { "LIGHT_STATE" },
@@ -808,7 +808,7 @@ local function buildAutoConfig()
       tagDefs = { "site", "device_name", "room_name" },
       interval = "5m",
       enabled = true,
-      dedup = false,
+      dedup = true,
       readings = lights,
     },
     tv_usage = {
@@ -816,7 +816,7 @@ local function buildAutoConfig()
       tagDefs = { "site", "room_name", "display_name", "source_name" },
       interval = "1m",
       enabled = true,
-      dedup = false,
+      dedup = true,
       readings = tvs,
     },
     security_status = {

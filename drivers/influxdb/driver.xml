@@ -162,7 +162,7 @@
         <name>Site</name>
         <type>STRING</type>
         <default/>
-        <description>Site tag written on every measurement (the home id, e.g. fishers). Used by Auto Configure.</description>
+        <description>Site tag written on every measurement (the home id, e.g. main_house). Used by Auto Configure.</description>
       </property>
       <property>
         <name>Write Precision</name>
