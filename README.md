@@ -14,26 +14,26 @@ an InfluxDB time-series database. Configure measurements, bind Control4
 variables as fields or tags, and let the driver handle batched writes with
 automatic offline buffering and retry.
 
-# <span style="color:#020A47">BIG AV fork additions</span>
+# <span style="color:#020A47">BIG AV Fork Additions</span>
 
 This community fork keeps everything above and adds a faster, convention based
 path so you do not have to hand bind every device.
 
 - **Auto Configure Measurements** (Actions tab). One click. The driver
   enumerates every device, reads its live variables, and builds standard
-  measurements automatically:
-  - `tv_usage` (power_on, current source) for displays
-  - `light_usage` (is_on, brightness) for lighting loads
-  - `security_status` (armed state) for security partitions
-  - `device_faults` for known fault variables (over temperature, short circuit,
-    UPS on battery, security trouble, arm failed, and so on) Set the connection
-    (URL, token, database) and the new **Site** property first, then click the
-    action. Re run it any time the project changes.
+  measurements automatically: `tv_usage` (power and current source for
+  displays), `light_usage` (on state and brightness for lighting loads),
+  `security_status` (armed state for security partitions), and `device_faults`
+  (known fault variables such as over temperature, short circuit, UPS on
+  battery, security trouble, and arm failed). Set the connection properties and
+  the **Site** property first, then run the action. Re run it any time the
+  project changes.
 - **Site** property. Writes a literal `site` tag on every measurement so one
-  database can hold many homes and still separate them cleanly.
+  InfluxDB database can hold many homes and still separate them cleanly.
 - **Sensible write model.** Usage measurements use Dedup ON (write on change) to
-  stay light on storage; faults use a heartbeat so their current state is always
-  fresh for alerting.
+  stay light on storage; faults and security use a heartbeat so their current
+  state is always fresh for alerting. Field types are pinned to integers so a
+  stray string can never poison a column type.
 
 The `device_faults` layer is the basis for proactive service: alert when a fault
 goes active, then summarize what was caught in a periodic health report.
@@ -401,6 +401,34 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ### Changed
 
 - The web UI fills the available width and adapts to narrow panes.
+
+## v20260827 - 2026-08-26
+
+Community fork adding one click, convention based configuration and a service
+intelligence layer on top of the upstream InfluxDB Data Logger.
+
+### Added
+
+- **Auto Configure Measurements** action. One click discovers every device
+  (`C4:GetDevices` + `C4:GetDeviceVariables`), resolves each variable name to
+  its numeric variable id, and creates `tv_usage`, `light_usage`,
+  `security_status`, and `device_faults` measurements by convention. No manual
+  per device binding.
+- **Site** property. A literal tag written on every measurement (the home id) so
+  a single database cleanly separates multiple homes.
+- **device_faults** measurement. An orthogonal fault scan maps known Control4
+  fault variables (`OVER_TEMPERATURE`, `SHORT_CIRCUIT_DETECTED`, `TROUBLE_TYPE`,
+  `LAST_ARM_FAILED`, `UPS_POWER_LOST_BOOL`, etc.) to a `fault_active` model for
+  proactive service alerting. Static severity and text live in the catalog, not
+  the time series.
+
+### Changed
+
+- Auto Configure sets the high volume usage measurements (`tv_usage`,
+  `light_usage`) to **Dedup ON** (write on change) so busy homes do not
+  accumulate excess Parquet files on InfluxDB 3 Core, which has no compactor.
+  `device_faults` stays Dedup OFF (heartbeat) so current fault state is always
+  fresh for alerting. Compute usage duration from on/off transitions.
 
 ## v20260331 - 2026-03-31
 
