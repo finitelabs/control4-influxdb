@@ -46,7 +46,7 @@ local DEFAULTS = {
 --- @field _config table Buffer configuration (max_points, max_bytes, outage_threshold)
 --- @field _state string Current connection state
 --- @field _backoffIndex number Current index into BACKOFF_SCHEDULE (1-based)
---- @field _retryTimerId number|nil Active retry timer ID
+--- @field _retryTimerId userdata|nil Active retry timer handle from C4:SetTimer
 --- @field _disconnectedAt number|nil Timestamp (os.time) when we went disconnected
 --- @field _outageNotified boolean Whether we've fired the extended-outage event this outage
 --- @field _onFlush function|nil Callback: function(points) -> fires when buffer should drain
@@ -176,7 +176,10 @@ end
 --- Cancel any active retry timer.
 function OfflineBuffer:_cancelRetryTimer()
   if self._retryTimerId then
-    C4:KillTimer(self._retryTimerId)
+    -- C4:SetTimer returns userdata carrying :Cancel(). C4:KillTimer pairs with
+    -- C4:AddTimer, which returns a number, and raises "idTimer should be a
+    -- number" when handed this handle.
+    self._retryTimerId:Cancel()
     self._retryTimerId = nil
   end
 end
@@ -186,7 +189,7 @@ function OfflineBuffer:_scheduleRetry()
   self:_cancelRetryTimer()
   local delaySec = self:_backoffDelay()
   log:info("Scheduling reconnect retry in %ds (backoff index %d)", delaySec, self._backoffIndex)
-  -- C4:SetTimer returns a timer ID; callback fires once then stops (interval=false)
+  -- C4:SetTimer returns a cancellable handle; callback fires once then stops (interval=false)
   self._retryTimerId = C4:SetTimer(delaySec * 1000, function()
     self._retryTimerId = nil
     self:_attemptDrain()

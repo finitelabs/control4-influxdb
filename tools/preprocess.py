@@ -63,7 +63,7 @@ def process_file(
     generic_else_pattern = re.compile(r"^\s*#else\s*$")
     generic_endif_pattern = re.compile(r"^\s*#endif\s*$")
 
-    # Embed changelog pattern — resolved in a pre-pass so that directives
+    # Embed changelog pattern, resolved in a pre-pass so that directives
     # inside the changelog are handled by the main processing loop.
     changelog_pattern = re.compile(r"^\s*<!--\s*#embed-changelog\s*-->\s*$")
 
@@ -223,7 +223,7 @@ def replace_template_variables(file_path: Path, variables: dict) -> None:
     for var_name, var_value in variables.items():
         content = content.replace(f"__{var_name}__", var_value)
         # Also replace %%VAR%% syntax (for use in markdown files where __X__
-        # is interpreted as bold by formatters like prettier)
+        # is interpreted as bold by markdown formatters)
         content = content.replace(f"%%{var_name}%%", var_value)
 
     with open(file_path, "w", encoding="utf-8") as f:

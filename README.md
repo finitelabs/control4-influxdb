@@ -1,6 +1,8 @@
+<!-- Copyright 2026 Finite Labs, LLC. All rights reserved. -->
+
 <img alt="InfluxDB Data Logger" src="./images/header.png" width="500"/>
 
----
+______________________________________________________________________
 
 # <span style="color:#020A47">Overview</span>
 
@@ -41,8 +43,11 @@ goes active, then summarize what was caught in a periodic health report.
 <div style="font-size: small">
 
 - [System Requirements](#system-requirements)
+
 - [Features](#features)
+
 - [Installer Setup](#installer-setup)
+
   - [Driver Installation](#driver-installation)
   - [Driver Setup](#driver-setup)
     - [Driver Tabs](#driver-tabs)
@@ -53,16 +58,18 @@ goes active, then summarize what was caught in a periodic health report.
       - [InfluxDB Settings](#influxdb-settings)
       - [Offline Buffer & Retry](#offline-buffer--retry)
     - [Driver Actions](#driver-actions)
+
 - [Programming](#programming)
+
   - [Events](#events)
   - [Variables](#variables)
   - [Conditionals](#conditionals)
+
 - [Support](#support)
+
 - [Changelog](#changelog)
 
 </div>
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#020A47">System Requirements</span>
 
@@ -81,8 +88,6 @@ goes active, then summarize what was caught in a periodic health report.
 - Extended outage notification event
 - Connection status events and conditionals for programming
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#020A47">Installer Setup</span>
 
 ## Driver Installation
@@ -90,23 +95,21 @@ goes active, then summarize what was caught in a periodic health report.
 Driver installation and setup are similar to most other ip-based drivers. Below
 is an outline of the basic steps for your convenience.
 
-1.  Download the latest `control4-influxdb.zip` from
-    [Github](https://github.com/finitelabs/control4-influxdb/releases/latest).
-2.  Extract and
-    [install](https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)
-    all `.c4z` files.
-3.  Use the "Search" tab to find the "Influxdb" driver and add it to your
-    project.
-    <br><img alt="Search Drivers" src="./images/search-drivers.png" width="300"/>
-4.  Configure the [InfluxDB Settings](#influxdb-settings) with the connection
-    information for your InfluxDB instance. The
-    [`Driver Status`](#driver-status-read-only) will display `Connected`
-    automatically once the URL, API Token, and Database are set.
-5.  Create measurements using the
-    [Measurement Configuration](#measurement-configuration) properties and bind
-    Control4 variables to them.
-
-<div style="page-break-after: always"></div>
+1. Download the latest `control4-influxdb.zip` from
+   [Github](https://github.com/finitelabs/control4-influxdb/releases/latest).
+1. Extract and
+   [install](https://www.control4.com/help/c4/software/cpro/dealer-composer-help/content/composerpro_userguide/adding_drivers_manually.htm)
+   all `.c4z` files.
+1. Use the "Search" tab to find the "Influxdb" driver and add it to your
+   project.
+   <br><img alt="Search Drivers" src="./images/search-drivers.png" width="300"/>
+1. Configure the [InfluxDB Settings](#influxdb-settings) with the connection
+   information for your InfluxDB instance. The
+   [`Driver Status`](#driver-status-read-only) will display `Connected`
+   automatically once the URL, API Token, and Database are set.
+1. Create measurements using the
+   [Measurement Configuration](#measurement-configuration) properties and bind
+   Control4 variables to them.
 
 ## Driver Setup
 
@@ -126,11 +129,8 @@ Displays the current connection status and write metrics.
 
 <img alt="Status" src="./images/ui-status.png" width="500"/>
 
-1.  **Connection** - shows the connection state, InfluxDB URL, and database
-    name.
-2.  **Write Metrics** - points buffered, written, dropped, and write errors.
-
-<div style="page-break-after: always"></div>
+1. **Connection** - shows the connection state, InfluxDB URL, and database name.
+1. **Write Metrics** - points buffered, written, dropped, and write errors.
 
 ##### Settings
 
@@ -139,21 +139,17 @@ Displays the driver properties in a grouped layout. See
 
 <img alt="Settings" src="./images/ui-settings.png" width="500"/>
 
-<div style="page-break-after: always"></div>
-
 ##### Measurements
 
 Configure measurements, schemas, and per-device readings.
 
 <img alt="Measurements" src="./images/ui-measurements.png" width="500"/>
 
-1.  **+ Add Measurement** - create a new measurement (the name becomes the
-    InfluxDB table name)
-2.  **Measurement name** - click to open the editor. The table shows configured
-    fields, tags, reading count, and status at a glance.
-3.  **Delete** - remove the measurement and all its readings
-
-<div style="page-break-after: always"></div>
+1. **+ Add Measurement** - create a new measurement (the name becomes the
+   InfluxDB table name)
+1. **Measurement name** - click to open the editor. The table shows configured
+   fields, tags, reading count, and status at a glance.
+1. **Delete** - remove the measurement and all its readings
 
 ##### Measurement Editor
 
@@ -163,28 +159,26 @@ column.
 
 <img alt="Measurement Editor" src="./images/ui-measurement-editor.png" width="500"/>
 
-1.  **Back to Measurements** - return to the list view
-2.  **Schema** - define the InfluxDB columns. Add **fields** (numeric data like
-    `level`, `temperature`) and **tags** (string labels like `device_name`,
-    `room_name`). Use the input boxes and **Add** buttons to create them.
-3.  **Settings** - **Write Interval** controls how often data is sent (use
-    `Default` to inherit the global interval). **Dedup** skips writes when
-    values haven't changed. **Enabled** toggles data collection.
-4.  **Readings** - each reading represents one device's data mapped to this
-    measurement's schema. Add one reading per device you want to log.
-5.  **Add Reading** - enter a label and click to add a new reading
-6.  **Reading card** - shows the reading label, **+ Device Tags** shortcut
-    (auto-populates `device_name` and `room_name` from the device ID),
-    **Enabled** toggle, and **Remove** button
-7.  **Mapping row** - one row per schema column. Each row has:
-    - **Name** - the field or tag from the schema (blue = field, green = tag)
-    - **Source** - `Variable` (from a device) or `Literal` (a fixed value)
-    - **Device** - searchable picker for the Control4 device (Variable only)
-    - **Variable** - the device variable to read (Variable only)
-    - **Transform** - optional Lua expression (see [Transforms](#transforms))
-    - **Preview** - live result evaluated on the controller
-
-<div style="page-break-after: always"></div>
+1. **Back to Measurements** - return to the list view
+1. **Schema** - define the InfluxDB columns. Add **fields** (numeric data like
+   `level`, `temperature`) and **tags** (string labels like `device_name`,
+   `room_name`). Use the input boxes and **Add** buttons to create them.
+1. **Settings** - **Write Interval** controls how often data is sent (use
+   `Default` to inherit the global interval). **Dedup** skips writes when values
+   haven't changed. **Enabled** toggles data collection.
+1. **Readings** - each reading represents one device's data mapped to this
+   measurement's schema. Add one reading per device you want to log.
+1. **Add Reading** - enter a label and click to add a new reading
+1. **Reading card** - shows the reading label, **+ Device Tags** shortcut
+   (auto-populates `device_name` and `room_name` from the device ID),
+   **Enabled** toggle, and **Remove** button
+1. **Mapping row** - one row per schema column. Each row has:
+   - **Name** - the field or tag from the schema (blue = field, green = tag)
+   - **Source** - `Variable` (from a device) or `Literal` (a fixed value)
+   - **Device** - searchable picker for the Control4 device (Variable only)
+   - **Variable** - the device variable to read (Variable only)
+   - **Transform** - optional Lua expression (see [Transforms](#transforms))
+   - **Preview** - live result evaluated on the controller
 
 ##### Transforms
 
@@ -207,17 +201,15 @@ You can also use any Lua math expression:
 > **Note:** Transform expressions use standard Lua syntax. Table constructors
 > use `=` not `:` (e.g., `map({normal = 100})` not `map({"normal": 100})`).
 
-<div style="page-break-after: always"></div>
-
 ### Driver Properties
 
 #### Cloud Settings
 
-##### Automatic Updates \[ Off \| **_On_** \]
+##### Automatic Updates \[ Off | **_On_** \]
 
 Enables or disables automatic driver updates from GitHub releases.
 
-##### Update Channel \[ **_Production_** \| Prerelease \]
+##### Update Channel \[ **_Production_** | Prerelease \]
 
 Sets the update channel for which releases are considered during automatic
 updates from GitHub releases.
@@ -232,11 +224,11 @@ Displays the current status of the driver.
 
 Displays the current version of the driver.
 
-##### Log Level \[ 0 - Fatal \| 1 - Error \| 2 - Warning \| **_3 - Info_** \| 4 - Debug \| 5 - Trace \| 6 - Ultra \]
+##### Log Level \[ 0 - Fatal | 1 - Error | 2 - Warning | **_3 - Info_** | 4 - Debug | 5 - Trace | 6 - Ultra \]
 
 Sets the logging level. Default is `3 - Info`.
 
-##### Log Mode \[ **_Off_** \| Print \| Log \| Print and Log \]
+##### Log Mode \[ **_Off_** | Print | Log | Print and Log \]
 
 Sets the logging mode. Default is `Off`.
 
@@ -254,11 +246,11 @@ InfluxDB API authentication token. This field is masked in Composer Pro.
 
 InfluxDB database (bucket) name to write into.
 
-##### Write Precision \[ ns \| us \| **_ms_** \| s \]
+##### Write Precision \[ ns | us | **_ms_** | s \]
 
 Timestamp precision for line protocol writes. Default is `ms`.
 
-##### Default Write Interval \[ 10s \| 30s \| **_1m_** \| 5m \| 15m \]
+##### Default Write Interval \[ 10s | 30s | **_1m_** | 5m | 15m \]
 
 How often the driver flushes buffered data points to InfluxDB. Individual
 measurements can override this value. Default is `1m`.
@@ -270,7 +262,7 @@ measurements can override this value. Default is `1m`.
 Maximum number of data points to buffer when the InfluxDB server is unreachable.
 Default is `10000`.
 
-##### Outage Notification Threshold \[ 1m \| **_5m_** \| 15m \| 30m \| 1h \]
+##### Outage Notification Threshold \[ 1m | **_5m_** | 15m | 30m | 1h \]
 
 Fires the **Extended Outage** event after the driver has been disconnected for
 this duration. Default is `5m`.
@@ -289,8 +281,6 @@ the current version.
 #### Clear Offline Buffer
 
 Discards all data points in the offline buffer without writing them.
-
-<div style="page-break-after: always"></div>
 
 # <span style="color:#020A47">Programming</span>
 
@@ -315,20 +305,79 @@ other drivers to log their values to InfluxDB.
 | ------------------ | ---- | ------------------------------------------------------------------ |
 | INFLUXDB_CONNECTED | BOOL | `True` when the driver is connected to InfluxDB, `False` otherwise |
 
-<div style="page-break-after: always"></div>
-
 # <span style="color:#020A47">Support</span>
 
 If you have any questions or issues integrating this driver with Control4, you
 can file an issue on GitHub:
 
-<https://github.com/finitelabs/control4-influxdb/issues/new>
+https://github.com/finitelabs/control4-influxdb/issues/new
 
 <a href="https://www.buymeacoffee.com/derek.miller" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
-<div style="page-break-after: always"></div>
+# <span style="color:#020A47">Changelog</span>
 
-# <span style="color:#109EFF">Changelog</span>
+<!--
+Template for a new release entry (copy below the heading, fill in, uncomment):
+
+## v[Version] - YYYY-MM-DD
+
+### Added
+- Added
+
+### Fixed
+- Fixed
+
+### Changed
+- Changed
+
+### Removed
+- Removed
+-->
+
+## v20260816 - 2026-08-16
+
+### Added
+
+- A schema field can pin its InfluxDB type instead of inferring it from each
+  value, so a measurement whose readings mix whole and fractional numbers is no
+  longer rejected. The mapping preview shows the pinned type, so `0`, `0.0`,
+  `"0"` and `false` are told apart and a lossy pin is visible before saving.
+- Agents are listed in the device picker under their own heading, so variables
+  that live on an agent, such as Composer global variables, can be logged.
+
+### Fixed
+
+- All of a measurement's readings on the same schedule are sent in one write,
+  instead of one request per reading saturating the controller until writes
+  timed out.
+- Points carry the time they were read, rather than the time the write arrived,
+  which drifted by minutes whenever a write was retried.
+- A measurement no longer starts a write while one is still outstanding, so a
+  slow or unreachable InfluxDB no longer builds up retries it cannot clear.
+- Reloading or removing the driver while InfluxDB is unreachable stops cleanly
+  instead of erroring during shutdown.
+- A variable that never changes after startup is logged instead of being skipped
+  indefinitely.
+- Disabling a measurement stops its writes instead of leaving its buffered
+  points retrying.
+- A value of zero shows in the mapping preview instead of appearing blank.
+- A device's own variables are always listed before its proxies' in the variable
+  picker.
+- Device and variable dropdowns in the measurement editor are no longer cut off
+  by the surrounding card, and stay on screen near the edges of the pane.
+- A device that a driver exposes through a proxy of the same name now appears
+  once in the device picker instead of several times, and its variable list is
+  grouped by where each variable comes from. Proxies that stand for something of
+  their own, such as a security panel's areas or a receiver's tuner, are still
+  listed separately. Devices that genuinely share a room and name are told apart
+  by their device id. Devices with no variables are hidden when mapping a field
+  or tag, and remain available under Device Tags.
+- A long measurement name no longer pushes the Delete button out of reach in the
+  measurements table.
+
+### Changed
+
+- The web UI fills the available width and adapts to narrow panes.
 
 ## v20260331 - 2026-03-31
 

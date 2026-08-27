@@ -5,6 +5,9 @@
 --- and setfenv for sandboxing.
 
 local log = require("lib.logging")
+local agents = require("lib.agents")
+
+require("lib.utils")
 
 ---------------------------------------------------------------------------
 -- Module
@@ -36,6 +39,12 @@ local function deviceName(id)
   if device and device.deviceName and device.deviceName ~= "" then
     return device.deviceName
   end
+  -- Agents are not in GetDevices, so device_name(<agent id>) would otherwise
+  -- render the bare id.
+  local agent = agents.name(devId)
+  if agent then
+    return agent
+  end
   return tostring(id)
 end
 
@@ -50,6 +59,9 @@ local function roomName(id)
   local device = GetDevice(devId)
   if device and device.roomName and device.roomName ~= "" then
     return device.roomName
+  end
+  if agents.name(devId) then
+    return "Agents"
   end
   return tostring(id)
 end

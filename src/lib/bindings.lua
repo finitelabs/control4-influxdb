@@ -5,6 +5,9 @@
 local log = require("lib.logging")
 local persist = require("lib.persist")
 
+require("drivers-common-public.global.lib")
+require("lib.utils")
+
 --- Create a binding between two devices if it doesn't already exist.
 --- @param idDeviceProvider integer Provider device ID
 --- @param idBindingProvider integer Provider binding ID
@@ -199,6 +202,12 @@ end
 
 --- Restores all dynamic bindings from persistent storage. Ensures that all
 --- bindings are re-added and removes unknown bindings within managed ranges.
+---
+--- Call this from OnDriverInit, not OnDriverLateInit: Director resolves stored
+--- connections before OnDriverLateInit, and connections where this driver's
+--- binding is the consumer side are permanently dropped if the binding does
+--- not exist yet (provider-side bindings get re-attached whenever they are
+--- added, so only early restore covers both directions).
 function Bindings:restoreBindings()
   log:trace("Binding:restoreBindings()")
   local deviceBindings = GetDeviceBindings(tointeger(C4:GetDeviceID()))

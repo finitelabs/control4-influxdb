@@ -13,7 +13,6 @@ require("lib.utils")
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
-require("drivers-common-public.global.url")
 
 local log = require("lib.logging")
 --#ifndef DRIVERCENTRAL
@@ -26,6 +25,7 @@ local SubscriptionEngine = require("lib.subscriptions")
 local MeasurementManager = require("lib.measurements")
 local InfluxClient = require("lib.influx_client")
 local transform = require("lib.transform")
+local agents = require("lib.agents")
 
 ---------------------------------------------------------------------------
 -- State
@@ -317,32 +317,138 @@ function UIR._GET_STATUS()
   return uiRespond("STATUS_DATA", { status = JSON:encode(status) })
 end
 
+--- Whether a proxy merely restates the device that declares it. A proxy named
+--- for itself -- a security panel's areas, a receiver's tuner -- must stay its
+--- own entry or it vanishes from the picker.
+--- @param proxy table|nil The proxy's device definition, if it is in the project.
+--- @param owner table The declaring device's definition.
+--- @return boolean
+local function isRestatedProxy(proxy, owner)
+  return proxy ~= nil and tostring(proxy.deviceName) == tostring(owner.deviceName)
+end
+
+--- Section heading for a member of a merged entry, taken from the proxy's .c4i.
+--- @param dev table A device definition from C4:GetDevices().
+--- @param isOwner boolean True for the driver itself rather than one of its proxies.
+--- @return string label
+local function proxySectionLabel(dev, isOwner)
+  if isOwner then
+    return "Device"
+  end
+  local file = tostring((dev or {}).driverFileName or "")
+  local base = file:match("^(.*)%.c4i$") or file:match("^(.*)%.c4z$")
+  return IsEmpty(base) and "Proxy" or base
+end
+
 --- Send the device list to the web UI with display names (Room > Device).
 --- Uses C4:GetDevices() for efficiency (avoids parsing large XML from GetProjectItems).
+---
+--- Reports hasVariables rather than filtering: mapping rows can only bind a
+--- variable, but Device Tags only needs the item to exist.
+---
+--- A driver and the proxies that restate it are folded into one entry via the
+--- parent's `proxies` table. Entries that still share a label get the id.
 function UIR._GET_DEVICES()
   log:trace("UIR.GET_DEVICES()")
   local devices = {}
   local allDevices = C4:GetDevices() or {}
+
+  -- Proxy id -> owning driver id, for proxies that only restate their owner.
+  local ownerOf = {}
   for id, dev in pairs(allDevices) do
-    local name = dev.deviceName or ("Device " .. id)
-    local displayName = name
-    if not IsEmpty(dev.roomName) then
-      displayName = dev.roomName .. " > " .. name
+    for proxyId in pairs(dev.proxies or {}) do
+      local pid = tonumber(proxyId) or proxyId
+      if isRestatedProxy(allDevices[pid], dev) then
+        ownerOf[pid] = id
+      end
     end
+  end
+
+  -- Collapse chains so a proxy of a proxy still lands in an entry rather than
+  -- being dropped for belonging to a device that is not one itself.
+  local rootOf, membersOf = {}, {}
+  for id in pairs(allDevices) do
+    local root, seen = id, { [id] = true }
+    while ownerOf[root] ~= nil and not seen[ownerOf[root]] do
+      root = ownerOf[root]
+      seen[root] = true
+    end
+    rootOf[id] = root
+    membersOf[root] = membersOf[root] or {}
+    table.insert(membersOf[root], id)
+  end
+
+  for id, dev in pairs(allDevices) do
+    if rootOf[id] == id then
+      local memberIds = membersOf[id]
+      table.sort(memberIds)
+
+      local hasVariables = false
+      for _, mid in ipairs(memberIds) do
+        local ok, memberVars = pcall(C4.GetDeviceVariables, C4, mid)
+        if ok and memberVars ~= nil and next(memberVars) ~= nil then
+          hasVariables = true
+          break
+        end
+      end
+
+      local name = dev.deviceName or ("Device " .. id)
+      local displayName = name
+      if not IsEmpty(dev.roomName) then
+        displayName = dev.roomName .. " > " .. name
+      end
+      devices[#devices + 1] = {
+        id = id,
+        name = name,
+        displayName = displayName,
+        roomName = dev.roomName or "",
+        section = "Devices",
+        hasVariables = hasVariables,
+        memberIds = memberIds,
+      }
+    end
+  end
+
+  -- Absent from C4:GetDevices(), so added separately. "Agents" stands in as the
+  -- room to keep the picker's "Room > Device" shape.
+  -- Refreshed per load so a newly added agent appears without a restart.
+  for agentId, agentName in pairs(agents.getAll(true)) do
+    local ok, agentVars = pcall(C4.GetDeviceVariables, C4, agentId)
     devices[#devices + 1] = {
-      id = id,
-      name = name,
-      displayName = displayName,
-      roomName = dev.roomName or "",
+      id = agentId,
+      name = agentName,
+      displayName = "Agents > " .. agentName,
+      roomName = "Agents",
+      section = "Agents",
+      hasVariables = ok and agentVars ~= nil and next(agentVars) ~= nil,
+      memberIds = { agentId },
     }
   end
+  local labelCounts = {}
+  for _, d in ipairs(devices) do
+    labelCounts[d.displayName] = (labelCounts[d.displayName] or 0) + 1
+  end
+  for _, d in ipairs(devices) do
+    if labelCounts[d.displayName] > 1 then
+      d.displayName = string.format("%s (%s)", d.displayName, d.id)
+    end
+  end
+  -- Devices first so the section headings keep a fixed order.
+  local sectionRank = { Devices = 1, Agents = 2 }
   table.sort(devices, function(a, b)
+    local ra, rb = sectionRank[a.section] or 9, sectionRank[b.section] or 9
+    if ra ~= rb then
+      return ra < rb
+    end
     return (a.displayName or "") < (b.displayName or "")
   end)
   return uiRespond("DEVICES_DATA", { devices = JSON:encode(devices) })
 end
 
---- Send variables for a specific device to the web UI.
+--- Send variables for a device entry to the web UI.
+---
+--- Returns the entry's variables and its folded proxies', each carrying the id
+--- of the member that owns it -- which is what a mapping stores.
 --- @param tParams table
 function UIR._GET_DEVICE_VARIABLES(tParams)
   log:trace("UIR.GET_DEVICE_VARIABLES()")
@@ -351,19 +457,54 @@ function UIR._GET_DEVICE_VARIABLES(tParams)
   if not devId then
     return
   end
-  local vars = {}
-  local ok, deviceVars = pcall(C4.GetDeviceVariables, C4, devId)
-  if ok and deviceVars then
-    for varId, varInfo in pairs(deviceVars) do
-      vars[#vars + 1] = {
-        id = tonumber(varId),
-        name = varInfo.name or ("var" .. varId),
-        type = varInfo.type or "STRING",
-        value = varInfo.value,
-      }
+
+  local entry = C4:GetDevices({ DeviceIds = tostring(devId) })[devId] or {}
+  local members = { { id = devId, section = proxySectionLabel(entry, true), order = 1 } }
+  local queue, seen = { { id = devId, dev = entry } }, { [devId] = true }
+  while #queue > 0 do
+    local cur = table.remove(queue, 1)
+    -- pairs() over proxies has no defined order, so walk them by id: section
+    -- order would otherwise vary between calls.
+    local childIds = {}
+    for proxyId in pairs((cur.dev or {}).proxies or {}) do
+      childIds[#childIds + 1] = tonumber(proxyId) or proxyId
+    end
+    table.sort(childIds)
+    for _, pid in ipairs(childIds) do
+      local proxy = C4:GetDevices({ DeviceIds = tostring(pid) })[pid]
+      if not seen[pid] and isRestatedProxy(proxy, cur.dev) then
+        seen[pid] = true
+        members[#members + 1] = { id = pid, section = proxySectionLabel(proxy, false), order = #members + 1 }
+        queue[#queue + 1] = { id = pid, dev = proxy }
+      end
     end
   end
+
+  local vars = {}
+  for _, member in ipairs(members) do
+    local ok, deviceVars = pcall(C4.GetDeviceVariables, C4, member.id)
+    if ok and deviceVars then
+      for varId, varInfo in pairs(deviceVars) do
+        vars[#vars + 1] = {
+          id = tonumber(varId),
+          deviceId = member.id,
+          section = member.section,
+          order = member.order,
+          name = varInfo.name or ("var" .. varId),
+          type = varInfo.type or "STRING",
+          value = varInfo.value,
+        }
+      end
+    end
+  end
+  -- Order on the member's position, not its label: comparing label strings ties
+  -- when a proxy's .c4i is named Device, and the owner-first rule contradicts
+  -- that tie. LuaJIT's table.sort does not reject the resulting cycle, it just
+  -- silently stops putting the device's own variables first.
   table.sort(vars, function(a, b)
+    if a.order ~= b.order then
+      return a.order < b.order
+    end
     return (a.name or "") < (b.name or "")
   end)
   return uiRespond("DEVICE_VARIABLES_DATA", {
@@ -385,10 +526,32 @@ function UIR._EVAL_TRANSFORM(tParams)
   else
     result, err = transform.eval(expression, tostring(rawValue))
   end
+
+  -- Fields preview with their type visible (0, 0.0, "0", false) so a lossy pin
+  -- shows before it is saved. Serialisation is left out: the suffix is stripped
+  -- below and tags preview unescaped.
+  if not err and params.kind == "field" and result ~= nil then
+    local valueType = params.valueType
+    if IsEmpty(valueType) then
+      valueType = InfluxWriter.inferValueType(result)
+    end
+    local formatted, ferr = InfluxWriter.formatFieldValue(result, valueType)
+    if formatted then
+      -- Display only; the write keeps the suffix.
+      result = formatted:gsub("i$", "")
+    else
+      err = ferr
+    end
+  end
+
+  -- Encoded, not sent as scalars: C4:SendDataToUI coerces a numeric string, so
+  -- "50.0" would arrive as 50. The other handlers encode for the same reason.
   return uiRespond("TRANSFORM_RESULT", {
-    id = params.id or "",
-    result = result ~= nil and tostring(result) or "",
-    error = err or "",
+    payload = JSON:encode({
+      id = params.id or "",
+      result = result ~= nil and tostring(result) or "",
+      error = err or "",
+    }),
   })
 end
 
@@ -448,6 +611,17 @@ function UIR._REMOVE_FIELD_DEF(tParams)
   return UIR._GET_CONFIG()
 end
 
+--- Pin or clear the InfluxDB type for a schema field.
+--- @param tParams table
+function UIR._SET_FIELD_TYPE(tParams)
+  log:trace("UIR.SET_FIELD_TYPE()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  if params.measurement and params.name then
+    measManager:setFieldType(params.measurement, params.name, params.valueType)
+  end
+  return UIR._GET_CONFIG()
+end
+
 --- Add a tag definition to a measurement schema.
 --- @param tParams table
 function UIR._ADD_TAG_DEF(tParams)
@@ -486,7 +660,7 @@ function UIR._UPDATE_MEAS_SETTINGS(tParams)
       interval = params.interval,
       dedup = params.dedup,
       enabled = params.enabled,
-    }, subEngine)
+    }, subEngine, influxWriter)
   end
   if subEngine then
     subEngine:restartIntervalTimers()
@@ -894,8 +1068,6 @@ end
 
 function OnDriverLateInit()
   log:trace("OnDriverLateInit()")
-
-  C4:FileSetDir("c29tZXNwZWNpYWxrZXk=++11")
 
   -- Set driver version
   UpdateProperty("Driver Version", C4:GetDeviceData(C4:GetDeviceID(), "version"))

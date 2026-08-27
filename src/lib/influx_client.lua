@@ -7,6 +7,8 @@ local log = require("lib.logging")
 local http = require("lib.http")
 local constants = require("constants")
 
+require("drivers-common-public.global.handlers")
+
 ---------------------------------------------------------------------------
 -- Module
 ---------------------------------------------------------------------------

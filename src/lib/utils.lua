@@ -7,6 +7,10 @@ local lru = require("lib.lru")
 
 local constants = require("constants")
 
+require("drivers-common-public.global.lib")
+require("drivers-common-public.global.handlers")
+require("drivers-common-public.global.timer")
+
 --- @alias DeviceId integer|string
 
 do
@@ -78,12 +82,35 @@ function CheckMinimumVersion(statusProperty)
   return true
 end
 
+--- Undocumented hook: C4:FileSetDir rejects the C4Z_ROOT alias until this key is passed.
+--- Not every controller OS accepts the key, so it is pcall'd; a rejection then fails on the
+--- alias itself, as it did before this unlock, instead of erroring out of the caller.
+local C4Z_ROOT_UNLOCK_KEY = "c29tZXNwZWNpYWxrZXk=++11"
+
+--- Unlocks the C4Z_ROOT alias. Required before C4:FileSetDir can address any driver
+--- directory other than the running driver's own.
+function UnlockC4ZRoot()
+  pcall(function()
+    C4:FileSetDir(C4Z_ROOT_UNLOCK_KEY)
+  end)
+end
+
 --- Gets the version of a driver from its driver.xml file.
 --- @param filename string The filename of the driver.
 --- @return string|nil version The version of the driver, or nil if not found.
 function GetDriverVersion(filename)
   local basename, _ = filename:match("(.*)%.(.*)")
-  C4:FileSetDir("C4Z_ROOT", basename)
+  --- C4:GetDriverFileName is absent on some controller OS versions; without it every
+  --- filename takes the C4Z_ROOT path, which is what this function did previously.
+  local runningFilename = C4.GetDriverFileName and C4:GetDriverFileName()
+  local runningBasename = runningFilename and (runningFilename:match("(.*)%.(.*)") or runningFilename)
+  if basename ~= nil and basename == runningBasename then
+    --- The C4Z alias resolves to the running driver's own directory and needs no unlock.
+    C4:FileSetDir("C4Z")
+  else
+    UnlockC4ZRoot()
+    C4:FileSetDir("C4Z_ROOT", basename)
+  end
   return Select(ParseXml(FileRead("driver.xml")) or {}, "devicedata", "version") or nil
 end
 
@@ -400,6 +427,10 @@ end
 
 --- Parses a comma-separated list of device IDs and processes them.
 --- Each device ID in the list is retrieved, checked for validity, and optionally passed to a callback function for processing.
+--- The `index` given to the callback is the entry's 1-based position among the non-empty entries of `deviceIdListStr`,
+--- counted whether or not the entry resolves: an unresolvable ID leaves a gap rather than shifting the entries behind
+--- it. The position is stable only while the list is unchanged, since removing or inserting an entry renumbers every
+--- entry after it.
 --- @param deviceIdListStr string The string of comma-separated device IDs.
 --- @param c4iNames? string[] Optional list of C4i names to filter devices.
 --- @param callback? fun(deviceId: DeviceId, device: table, index: integer): any Optional callback to process each device.
@@ -407,13 +438,14 @@ end
 function ParseDeviceIdList(deviceIdListStr, c4iNames, callback)
   log:trace("ParseDeviceIdList(%s, %s, <callback>)", deviceIdListStr, c4iNames)
   local devices = {}
-  local i = 1
+  local i = 0
   for deviceIdStr in string.gmatch(deviceIdListStr or "", "([^,]+)") do
+    -- Count every entry, resolvable or not; skipping would renumber the entries behind it.
+    i = i + 1
     local device = GetDevice(deviceIdStr, c4iNames)
     if device ~= nil then
       if type(callback) == "function" then
         local success, result = pcall(callback, device.deviceId, device, i)
-        i = i + 1
         if success then
           devices[device.deviceId] = result
         else

@@ -1,7 +1,7 @@
 # Control4 Driver Build System
 # Run `make help` for available targets.
 
-DISTRIBUTIONS := oss
+DISTRIBUTIONS := drivercentral oss
 README_DRIVER := influxdb
 README_BUILD  := oss
 
@@ -9,6 +9,7 @@ README_BUILD  := oss
 VENV       := .venv
 VENV_PY    := $(VENV)/bin/python3
 VENV_BLACK := $(VENV)/bin/black
+VENV_STAMP := $(VENV)/.requirements-installed
 PACKAGER   := dist/driverpackager/dp3/driverpackager.py
 
 # OpenSSL detection (cross-platform)
@@ -25,6 +26,16 @@ else
   export CFLAGS   := -DPRAGMA_IGNORE_UNUSED_LABEL= -DPRAGMA_WARN_STRICT_PROTOTYPES=
 endif
 
+# WeasyPrint (docs PDF) links GObject/Pango/Cairo native libs at runtime. On
+# macOS these are Homebrew-installed outside the default dyld search path, so
+# point WeasyPrint at them. On Linux (incl. CI) the libs are on the standard
+# loader path and no override is needed.
+ifeq ($(shell uname -s),Darwin)
+  WEASYPRINT_ENV := DYLD_FALLBACK_LIBRARY_PATH=$(shell brew --prefix 2>/dev/null)/lib
+else
+  WEASYPRINT_ENV :=
+endif
+
 # ─── Help ─────────────────────────────────────────────────────────────────────
 
 .PHONY: help
@@ -34,16 +45,36 @@ help: ## Show this help
 
 # ─── Init ─────────────────────────────────────────────────────────────────────
 
-.PHONY: init
-init: node_modules $(VENV) $(PACKAGER) ## One-time setup: install all dependencies
+.PHONY: init check-deps
+init: $(VENV_STAMP) $(PACKAGER) ## One-time setup: install all dependencies
 
-node_modules: package.json
-	npm install
+# The stamp, not $(VENV), is what everything depends on. A bare `$(VENV):` rule
+# is satisfied the moment the directory exists, so packages added by a later
+# template release were never installed in an existing checkout -- `make init`
+# just said "Nothing to be done" and the build failed later with a bare
+# ImportError. Keying the stamp on requirements.txt means a changed dependency
+# list re-runs the install. The stamp lives inside $(VENV) so clean-all takes it.
+#
+# The requirements install is deliberately not --upgrade: it adds what is
+# missing and leaves working packages alone, so `make init` cannot drag in a
+# breaking upstream release. Version needs belong in requirements.txt as
+# constraints, which pip honors either way. Bootstrap tooling (pip, setuptools,
+# wheel) is upgraded only when the venv is first created, for the same reason --
+# setuptools is M2Crypto's build dependency, and a dependency-list change is no
+# reason to bump it underneath a working build.
+$(VENV_STAMP): requirements.txt
+	@test -x $(VENV_PY) || { \
+		python3 -m venv $(VENV) && \
+		$(VENV_PY) -m pip install --upgrade pip setuptools wheel; \
+	}
+	$(VENV_PY) -m pip install -r requirements.txt
 	@touch $@
 
-$(VENV):
-	python3 -m venv $(VENV)
-	$(VENV_PY) -m pip install --upgrade pip setuptools wheel M2Crypto lxml black copier
+# Safety net for drift the stamp cannot see (hand-removed package, interrupted
+# install). Cheap: no network, stdlib only. Installs first if the stamp is
+# stale, so this is "make the venv correct and prove it", not a pure read.
+check-deps: $(VENV_STAMP) ## Install if needed, then verify the venv satisfies requirements.txt
+	@$(VENV_PY) tools/deps.py check requirements.txt $(VENV_STAMP)
 
 $(PACKAGER):
 	rm -rf dist/driverpackager
@@ -54,24 +85,55 @@ $(PACKAGER):
 .PHONY: fmt fmt-lua fmt-py fmt-md
 fmt: fmt-lua fmt-py fmt-md ## Format all code
 
-fmt-lua: node_modules
-	npx stylua \
+# stylua is a standalone binary (brew install stylua / stylua-action in CI).
+fmt-lua:
+	@dirs=""; for d in ./drivers ./src ./test ./tools ./vendor; do \
+		[ -d "$$d" ] && dirs="$$dirs $$d"; \
+	done; \
+	[ -z "$$dirs" ] || stylua \
 		--indent-type Spaces --column-width 120 --line-endings Unix \
 		--indent-width 2 --quote-style AutoPreferDouble \
-		-g '*.lua' -v ./drivers ./src ./test ./tools ./vendor
+		-g '*.lua' -v $$dirs
 
-fmt-py:
-	$(VENV_BLACK) tools/preprocess
+fmt-py: $(VENV_STAMP)
+	$(VENV_BLACK) tools/*.py
 
-fmt-md: node_modules
-	npx prettier --prose-wrap always --write ./drivers/**/www/**/*.md *.md
+fmt-md: $(VENV_STAMP)
+	@files=""; for g in ./drivers/*/www/documentation/*.md documentation/*.md *.md; do \
+		[ -e "$$g" ] && files="$$files $$g"; \
+	done; \
+	[ -z "$$files" ] || $(VENV_PY) -m mdformat --wrap 80 $$files
+
+# ─── Check ──────────────────────────────────────────────────────────────────
+# Assert-only mirror of fmt (--check, no rewrite); this is what CI runs.
+
+.PHONY: check check-lua check-py check-md
+check: check-lua check-py check-md ## Assert all code is formatted (no rewrite)
+
+check-lua:
+	@dirs=""; for d in ./drivers ./src ./test ./tools ./vendor; do \
+		[ -d "$$d" ] && dirs="$$dirs $$d"; \
+	done; \
+	[ -z "$$dirs" ] || stylua --check \
+		--indent-type Spaces --column-width 120 --line-endings Unix \
+		--indent-width 2 --quote-style AutoPreferDouble \
+		-g '*.lua' $$dirs
+
+check-py: $(VENV_STAMP)
+	$(VENV_BLACK) --check tools/*.py
+
+check-md: $(VENV_STAMP)
+	@files=""; for g in ./drivers/*/www/documentation/*.md documentation/*.md *.md; do \
+		[ -e "$$g" ] && files="$$files $$g"; \
+	done; \
+	[ -z "$$files" ] || $(VENV_PY) -m mdformat --check --wrap 80 $$files
 
 # ─── Preprocess ───────────────────────────────────────────────────────────────
 
 .PHONY: preprocess
 preprocess: ## Run preprocessor for all distributions
 	@for build in $(DISTRIBUTIONS); do \
-		./tools/preprocess --$$build || exit 1; \
+		./tools/preprocess.py --$$build || exit 1; \
 	done
 
 # ─── Squishy ──────────────────────────────────────────────────────────────────
@@ -80,7 +142,7 @@ preprocess: ## Run preprocessor for all distributions
 gen-squishy: ## Auto-generate squishy files from .c4zproj
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
-			(cd "$$driver_dir" && lua ../../../../tools/gen-squishy.lua) || exit 1; \
+			(cd "$$driver_dir" && luajit ../../../../tools/gen-squishy.lua) || exit 1; \
 		done; \
 	done
 
@@ -89,21 +151,19 @@ gen-squishy: ## Auto-generate squishy files from .c4zproj
 .PHONY: update-xml update-xml-version update-xml-modified
 update-xml: update-xml-version update-xml-modified ## Stamp version + modified in driver.xml
 
-update-xml-version:
+update-xml-version: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
-			xmlstarlet edit --inplace --omit-decl \
-				--update '/devicedata/version' --value "$$(date +'%Y%m%d')" \
-				"$${driver_dir}driver.xml"; \
+			$(VENV_PY) tools/package.py xml-set \
+				"$${driver_dir}driver.xml" version "$$(date +'%Y%m%d')"; \
 		done; \
 	done
 
-update-xml-modified:
+update-xml-modified: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
-			xmlstarlet edit --inplace --omit-decl \
-				--update '/devicedata/modified' --value "$$(date +'%m/%d/%Y %I:%M %p')" \
-				"$${driver_dir}driver.xml"; \
+			$(VENV_PY) tools/package.py xml-set \
+				"$${driver_dir}driver.xml" modified "$$(date +'%m/%d/%Y %I:%M %p')"; \
 		done; \
 	done
 
@@ -113,67 +173,90 @@ update-xml-modified:
 docs: docs-readme docs-html docs-pdf ## Generate all documentation
 
 
-docs-readme:
+docs-readme: preprocess $(VENV_STAMP)
 	rm -rf ./images
 	@if [ -d drivers/$(README_DRIVER)/www/documentation/images ]; then cp -r drivers/$(README_DRIVER)/www/documentation/images .; fi
-	pandoc build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/index.md \
-		-f gfm -t gfm --lua-filter=tools/pandoc-remove-style.lua -o README.md
+	$(VENV_PY) tools/docs.py readme \
+		build/$(README_BUILD)/drivers/$(README_DRIVER)/www/documentation/index.md README.md
 
 
-docs-html: node_modules
+docs-html: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
 		for driver_dir in build/$$build/drivers/*/; do \
-			npx generate-md --layout github \
-				--input "$${driver_dir}www/documentation/index.md" \
-				--output "$${driver_dir}www/documentation"; \
+			$(VENV_PY) tools/docs.py md2html \
+				"$${driver_dir}www/documentation/index.md" \
+				"$${driver_dir}www/documentation"; \
 		done; \
 	done
 
-docs-pdf: node_modules
+docs-pdf: $(VENV_STAMP)
 	@for build in $(DISTRIBUTIONS); do \
-		mkdir -p "dist/$$build"; \
+		mkdir -p "dist/$$build/docs"; \
 		for driver_dir in build/$$build/drivers/*/; do \
 			if [ -f "$${driver_dir}.variant_pdf" ]; then \
 				driver_display_name=$$(cat "$${driver_dir}.variant_pdf"); \
 			else \
-				driver_display_name=$$(xmlstarlet sel -t -v '/devicedata/name' "$${driver_dir}driver.xml"); \
+				driver_display_name=$$($(VENV_PY) tools/package.py xml-get-name "$${driver_dir}driver.xml"); \
 			fi; \
-			pdf_output="dist/$$build/$$driver_display_name Documentation.pdf"; \
+			pdf_output="dist/$$build/docs/$$driver_display_name Documentation.pdf"; \
 			if [ -f "$$pdf_output" ]; then continue; fi; \
-			npx electron-pdf --marginsType 0 \
-				--input "$$(pwd)/$${driver_dir}www/documentation/index.html" \
-				--output "$$pdf_output" || exit 1; \
+			$(WEASYPRINT_ENV) $(VENV_PY) tools/docs.py html2pdf \
+				"$$(pwd)/$${driver_dir}www/documentation/index.html" \
+				"$$pdf_output" || exit 1; \
 		done; \
 	done
 
 # ─── Package ──────────────────────────────────────────────────────────────────
 
 .PHONY: package
-package: $(PACKAGER) ## Create .c4z driver packages
+# The packager writes the .c4z into the output dir passed here (c4z/); the
+# squished .lua goes to source/ via the squishy Output path (see gen-squishy.lua),
+# so both subfolders are created up front.
+package: $(VENV_STAMP) $(PACKAGER) ## Create .c4z driver packages
 	@for build in $(DISTRIBUTIONS); do \
+		mkdir -p "dist/$$build/c4z" "dist/$$build/source"; \
 		for driver_dir in build/$$build/drivers/*/; do \
 			dir=$$(basename "$$driver_dir"); \
 			pwd_saved="$$(pwd)"; \
 			cd "build/$$build/drivers/$$dir" && \
-			"$$pwd_saved/$(VENV_PY)" "$$pwd_saved/$(PACKAGER)" . "$$pwd_saved/dist/$$build" driver.c4zproj && \
+			"$$pwd_saved/$(VENV_PY)" "$$pwd_saved/$(PACKAGER)" . "$$pwd_saved/dist/$$build/c4z" driver.c4zproj && \
 			cd "$$pwd_saved"; \
 		done; \
 	done
 
 .PHONY: zip
-zip: ## Zip .c4z and .pdf files per distribution
-	@for build in $(DISTRIBUTIONS); do \
-		cd "dist/$$build" && \
-		zip "$$(basename "$$(realpath "$$(pwd)/../../")").zip" *.c4z *.pdf && \
-		cd ../../; \
+zip: $(VENV_STAMP) ## Zip the c4z/, docs/, and source/ subfolders per distribution
+	@repo="$$(basename "$$(pwd)")"; \
+	for build in $(DISTRIBUTIONS); do \
+		(cd "dist/$$build" && \
+			"$(CURDIR)/$(VENV_PY)" "$(CURDIR)/tools/package.py" zip \
+				"$$repo.zip" c4z docs source); \
 	done
+
+# ─── Test ─────────────────────────────────────────────────────────────────────
+
+.PHONY: test
+# test/ is on LUA_PATH and c4_shim is preloaded, matching the environment
+# test/run_test.sh sets up. Existing suites are written against that shim and
+# fail on a bare `luajit <file>` with "attempt to index global 'C4'". A test that
+# defines its own C4 still wins, since it assigns after the preload has run.
+test: ## Run the Lua test suite (test/test_*.lua)
+	@found=0; \
+	for f in test/test_*.lua; do \
+		[ -e "$$f" ] || continue; \
+		found=1; \
+		echo "==> $$f"; \
+		LUA_PATH="$(CURDIR)/test/?.lua;$(CURDIR)/src/?.lua;$(CURDIR)/src/?/init.lua;$(CURDIR)/vendor/?.lua;$(CURDIR)/vendor/?/init.lua;;" \
+			luajit -e "require('c4_shim')" "$$f" || exit 1; \
+	done; \
+	if [ "$$found" = "0" ]; then echo "No test/test_*.lua files found; nothing to run."; fi
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 
 .PHONY: build build-nodocs
-build: clean-build preprocess gen-squishy update-xml docs fmt package zip ## Full build
+build: check-deps clean-build fmt preprocess gen-squishy update-xml docs package zip ## Full build
 
-build-nodocs: clean-build preprocess gen-squishy update-xml fmt package ## Build without docs
+build-nodocs: check-deps clean-build fmt preprocess gen-squishy update-xml package ## Build without docs
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
 
@@ -186,4 +269,4 @@ clean: clean-build ## Remove build artifacts and dist
 	rm -rf dist
 
 clean-all: clean ## Remove everything (build, dist, deps, venv)
-	rm -rf node_modules $(VENV)
+	rm -rf $(VENV)

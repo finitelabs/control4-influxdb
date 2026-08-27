@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches: [main, master]
+    tags: ['v*']
   pull_request:
     branches: [main, master]
 
@@ -14,11 +15,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-
       - name: Setup Lua
         uses: leafo/gh-actions-lua@v12
         with:
@@ -29,6 +25,13 @@ jobs:
         with:
           python-version: '3.x'
 
+      - name: Setup stylua
+        uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --version
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -37,41 +40,38 @@ jobs:
             libxslt-dev \
             libssl-dev \
             swig \
-            pandoc \
-            xmlstarlet \
-            xvfb \
-            libnss3 \
-            libatk1.0-0 \
-            libatk-bridge2.0-0 \
-            libcups2 \
-            libdrm2 \
-            libxkbcommon0 \
-            libxcomposite1 \
-            libxdamage1 \
-            libxrandr2 \
-            libgbm1 \
             libpango-1.0-0 \
+            libpangocairo-1.0-0 \
             libcairo2 \
-            libasound2t64
+            libgdk-pixbuf-2.0-0 \
+            libffi-dev \
+            fonts-dejavu-core \
+            fonts-liberation \
+            fonts-noto-core \
+            fonts-symbola
 
       - name: Initialize project
         run: make init
 
+      - name: Check formatting
+        run: make check
+
+      - name: Test
+        run: make test
+
       - name: Build
-        run: xvfb-run make build
-        env:
-          ELECTRON_DISABLE_SANDBOX: '1'
+        run: make build
 
       - name: Verify PDFs were generated
         run: |
-          for build in oss; do
-            pdf_count=$(find "dist/$build" -name '*.pdf' 2>/dev/null | wc -l)
+          for build in drivercentral oss; do
+            pdf_count=$(find "dist/$build/docs" -name '*.pdf' 2>/dev/null | wc -l)
             if [ "$pdf_count" -eq 0 ]; then
-              echo "::error::No PDF files found in dist/$build"
-              ls -la "dist/$build/" || true
+              echo "::error::No PDF files found in dist/$build/docs"
+              ls -la "dist/$build/docs/" || true
               exit 1
             fi
-            echo "Found $pdf_count PDF(s) in dist/$build"
+            echo "Found $pdf_count PDF(s) in dist/$build/docs"
           done
 
       - name: Check for dirty tree
@@ -84,6 +84,14 @@ jobs:
             exit 1
           fi
 
+
+      - name: Upload drivercentral artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: drivercentral
+          path: dist/drivercentral/*
+          if-no-files-found: error
 
 
       - name: Upload oss artifacts

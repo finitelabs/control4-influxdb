@@ -58,14 +58,14 @@ end
 local persist_mod = require("lib.persist")
 
 local function resetPersist()
-  -- Clear the in-memory backing store (used by PersistGetValue/PersistSetValue shims)
-  for k in pairs(persist_store) do
-    persist_store[k] = nil
-  end
-  -- Also clear the persist module's internal cache so it re-reads from the (now empty) store
+  -- Delete each persisted key from the shim's backing store via the public API,
+  -- then drop the persist module's cache so it re-reads from the now-empty store.
+  -- (The rendered shim keeps its backing store module-local, so reset through
+  -- C4:PersistDeleteValue rather than reaching into it.)
   for k in pairs(persist_mod._persist) do
-    persist_mod._persist[k] = nil
+    C4:PersistDeleteValue(k)
   end
+  persist_mod._persist = {}
 end
 
 -- Simple test harness

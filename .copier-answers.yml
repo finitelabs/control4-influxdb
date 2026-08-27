@@ -1,11 +1,11 @@
-# Changes here will be overwritten by Copier
-_commit: v0.5.0
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_commit: v0.9.15
 _src_path: git@github.com:finitelabs/control4-driver-template.git
-project_name: control4-influxdb
-project_description: InfluxDB data logger driver for Control4
+distributions: drivercentral oss
 github_org: finitelabs
-distributions: oss
-readme_driver_slug: influxdb
+primary_color: '#020A47'
+project_description: InfluxDB data logger driver for Control4
+project_name: control4-influxdb
 readme_build: oss
-primary_color: "#020A47"
-vendor_modules: json deferred drivers-common-public xml
+readme_driver_slug: influxdb
+vendor_modules: ''
