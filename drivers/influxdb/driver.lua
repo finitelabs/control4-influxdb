@@ -817,34 +817,37 @@ end
 
 -- Variable names confirmed against live Control4 OS 3.x systems.
 local AUTO = {
-  SECURITY    = { "PARTITION_STATE" },
-  LIGHT_ON    = { "LIGHT_STATE" },
+  SECURITY = { "PARTITION_STATE" },
+  LIGHT_ON = { "LIGHT_STATE" },
   LIGHT_LEVEL = { "BRIGHTNESS PERCENT", "BRIGHTNESS TARGET PERCENT", "PRESET_LEVEL" },
-  TV_POWER    = { "POWER_STATE" },
-  TV_INPUT    = { "CURRENT_INPUT" },
+  TV_POWER = { "POWER_STATE" },
+  TV_INPUT = { "CURRENT_INPUT" },
 }
 -- on/off robust to number (level>0), "On"/"Off", or "true"/"false".
-local AUTO_T_ONOFF  = '(function() local n = tonumber(value); if n then return n > 0 and 1 or 0 end; local v = tostring(value):lower(); return (v == "on" or v == "true") and 1 or 0 end)()'
-local AUTO_T_LEVEL  = 'tonumber(value) or 0'
-local AUTO_T_SOURCE = 'tostring(value)'
+local AUTO_T_ONOFF =
+  '(function() local n = tonumber(value); if n then return n > 0 and 1 or 0 end; local v = tostring(value):lower(); return (v == "on" or v == "true") and 1 or 0 end)()'
+local AUTO_T_LEVEL = "tonumber(value) or 0"
+local AUTO_T_SOURCE = "tostring(value)"
 -- Guaranteed numeric: DISARM* -> 0, *AWAY -> 2, any other ARM* -> 1, else 0.
 -- (map() returns the raw value on no-match, so do not rely on "map(...) or 0".)
-local AUTO_T_ARMED  =
+local AUTO_T_ARMED =
   'tostring(value):upper():find("DISARM") and 0 or (tostring(value):upper():find("AWAY") and 2 or (tostring(value):upper():find("ARM") and 1 or 0))'
 
 -- Service intelligence: fault catalog (Phase 1). One device_faults reading per
 -- (device, variable) found. severity/text/alert flag are static per code and live
 -- here / in the report engine, NOT in the time series. _BOOL variants preferred.
 local FAULT_CATALOG = {
-  { var = "OVER_TEMPERATURE",       subsystem = "lighting", code = "load_overtemp",  rule = "bool" },
-  { var = "SHORT_CIRCUIT_DETECTED", subsystem = "lighting", code = "load_short",     rule = "bool" },
-  { var = "OVER_RATED_WATTAGE",     subsystem = "lighting", code = "load_overwatt",  rule = "bool" },
-  { var = "UPS_POWER_LOST_BOOL",    subsystem = "power",    code = "ups_on_battery", rule = "bool" },
-  { var = "TROUBLE_TYPE",           subsystem = "security", code = "sec_trouble",    rule = "nonempty" },
-  { var = "LAST_ARM_FAILED",        subsystem = "security", code = "sec_arm_failed", rule = "nonempty" },
+  { var = "OVER_TEMPERATURE", subsystem = "lighting", code = "load_overtemp", rule = "bool" },
+  { var = "SHORT_CIRCUIT_DETECTED", subsystem = "lighting", code = "load_short", rule = "bool" },
+  { var = "OVER_RATED_WATTAGE", subsystem = "lighting", code = "load_overwatt", rule = "bool" },
+  { var = "UPS_POWER_LOST_BOOL", subsystem = "power", code = "ups_on_battery", rule = "bool" },
+  { var = "TROUBLE_TYPE", subsystem = "security", code = "sec_trouble", rule = "nonempty" },
+  { var = "LAST_ARM_FAILED", subsystem = "security", code = "sec_arm_failed", rule = "nonempty" },
 }
-local FAULT_T_BOOL     = '(function() local n = tonumber(value); if n then return n > 0 and 1 or 0 end; local v = tostring(value):lower(); return (v == "true" or v == "yes" or v == "on") and 1 or 0 end)()'
-local FAULT_T_NONEMPTY = '(function() local v = tostring(value):lower(); return (v ~= "" and v ~= "none" and v ~= "0" and v ~= "false") and 1 or 0 end)()'
+local FAULT_T_BOOL =
+  '(function() local n = tonumber(value); if n then return n > 0 and 1 or 0 end; local v = tostring(value):lower(); return (v == "true" or v == "yes" or v == "on") and 1 or 0 end)()'
+local FAULT_T_NONEMPTY =
+  '(function() local v = tostring(value):lower(); return (v ~= "" and v ~= "none" and v ~= "0" and v ~= "false") and 1 or 0 end)()'
 
 --- Build name(upper) -> numeric variable id for one device.
 --- @param devId number
