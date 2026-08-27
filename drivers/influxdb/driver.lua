@@ -3,7 +3,7 @@ DC_PID = 0 -- TODO: Assign DriverCentral product ID
 DC_X = nil
 DC_FILENAME = "influxdb.c4z"
 --#else
-DRIVER_GITHUB_REPO = "finitelabs/control4-influxdb"
+DRIVER_GITHUB_REPO = "Racklord/control4-influxdb"
 DRIVER_FILENAMES = {
   "influxdb.c4z",
 }
