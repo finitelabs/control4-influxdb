@@ -278,6 +278,208 @@ test("buffered points survive a removed measurement's sibling", function()
   assert_true(posts[1][1]:match("^keep") ~= nil, "surviving measurement is 'keep'")
 end)
 
+test("retriable failures walk the backoff ladder and reset on success", function()
+  local _, pending = captureWrites()
+  local w = newWriter()
+  local delays = {}
+  local origSetTimer = SetTimer
+  SetTimer = function(name, ms, fn)
+    delays[#delays + 1] = ms / 1000
+    return origSetTimer(name, ms, fn)
+  end
+
+  local seq = 0
+  local function failOnce()
+    seq = seq + 1
+    w:enqueue("m", {}, { v = field(seq) }, { interval = 60, dedup = false, dedupKey = "m::a" }, seq)
+    w:forceFlushAll()
+    settle(pending, #pending, false)
+  end
+
+  failOnce()
+  failOnce()
+  failOnce()
+  SetTimer = origSetTimer
+
+  -- constants.RETRY_INTERVALS = { 5, 15, 30, 60, 300, 900 }; every failure used
+  -- to re-arm at 5.
+  assert_eq(delays[1], 5, "first retry at 5s")
+  assert_eq(delays[2], 15, "second retry climbs to 15s")
+  assert_eq(delays[3], 30, "third retry climbs to 30s")
+
+  -- A success resets the ladder, so the next failure starts at the bottom again.
+  SetTimer = function(name, ms, fn)
+    delays[#delays + 1] = ms / 1000
+    return origSetTimer(name, ms, fn)
+  end
+  w:enqueue("m", {}, { v = field(99) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 99)
+  w:forceFlushAll()
+  settle(pending, #pending, true)
+  w:enqueue("m", {}, { v = field(100) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 100)
+  w:forceFlushAll()
+  settle(pending, #pending, false)
+  SetTimer = origSetTimer
+  assert_eq(delays[#delays], 5, "ladder resets to 5s after a successful write")
+end)
+
+test("watchdog clears a flush stuck in flight after a lost callback", function()
+  local posts = captureWrites()
+  local w = newWriter()
+  local now = 1000
+  local origTime = os.time
+  os.time = function()
+    return now
+  end
+
+  w:enqueue("m", {}, { v = field(1) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 1)
+  w:forceFlushAll()
+  assert_eq(#posts, 1, "first request issued, inFlight set")
+
+  -- The callback never fires. Within the watchdog window a re-flush is suppressed.
+  w:enqueue("m", {}, { v = field(2) }, { interval = 60, dedup = false, dedupKey = "m::b" }, 2)
+  now = 1000 + 100
+  w:forceFlushAll()
+  assert_eq(#posts, 1, "still suppressed inside the watchdog window")
+
+  -- threshold = max(300, 60*5) = 300s. Past it, the watchdog clears inFlight.
+  now = 1000 + 301
+  w:forceFlushAll()
+  os.time = origTime
+  assert_eq(#posts, 2, "watchdog recovered the wedged buffer")
+  assert_eq(w._metrics.watchdogFires, 1, "watchdog fire recorded")
+  -- The publish after the fire count bump is load-bearing, not a duplicate of the
+  -- one _restoreBatch does: only it carries the incremented count to the variable.
+  assert_eq(tonumber(Variables["INFLUX_WATCHDOG_FIRES"]), 1, "watchdog-fire variable published, not left stale")
+end)
+
+test("shutdown stops every flush path from re-arming a timer", function()
+  local _, pending = captureWrites()
+  local w = newWriter()
+
+  w:enqueue("m", {}, { v = field(1) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 1)
+  w:forceFlushAll() -- posts[1], inFlight true, nothing settled
+
+  -- A second batch is waiting, so the success handler would re-arm on completion.
+  w:enqueue("m", {}, { v = field(2) }, { interval = 60, dedup = false, dedupKey = "m::b" }, 2)
+
+  w:shutdown() -- forceFlushAll here hits the in-flight branch, which would re-arm
+  settle(pending, 1, true) -- success handler sees buffer > 0 and would re-arm
+
+  local anyArmed = false
+  for _, state in pairs(w._measurements) do
+    if state.timerName then
+      anyArmed = true
+    end
+  end
+  assert_true(not anyArmed, "no flush timer armed after shutdown")
+end)
+
+test("watchdog restores the stuck batch instead of dropping it", function()
+  local posts = captureWrites()
+  local w = newWriter()
+  local now = 1000
+  local origTime = os.time
+  os.time = function()
+    return now
+  end
+
+  w:enqueue("m", {}, { v = field(1) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 1)
+  w:forceFlushAll()
+  assert_eq(#posts[1], 1, "first request carries the point")
+
+  -- The callback is lost. A new point keeps the buffer non-empty so the flush
+  -- reaches the watchdog rather than returning early.
+  w:enqueue("m", {}, { v = field(2) }, { interval = 60, dedup = false, dedupKey = "m::b" }, 2)
+  now = 1000 + 301
+  w:forceFlushAll()
+  os.time = origTime
+
+  assert_eq(#posts, 2, "reissued after the watchdog fire")
+  assert_eq(#posts[2], 2, "the stuck point was restored to the batch, not lost")
+  assert_eq(w._metrics.pointsDropped, 0, "the recovered point is not counted as dropped")
+end)
+
+test("a superseded request's late success does not reopen concurrency", function()
+  local posts, pending = captureWrites()
+  local w = newWriter()
+  local now = 1000
+  local origTime = os.time
+  os.time = function()
+    return now
+  end
+
+  w:enqueue("m", {}, { v = field(1) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 1)
+  w:forceFlushAll() -- request A
+  w:enqueue("m", {}, { v = field(2) }, { interval = 60, dedup = false, dedupKey = "m::b" }, 2)
+  now = 1000 + 301
+  w:forceFlushAll() -- watchdog fires, reissues as request B (inFlight stays true)
+  assert_eq(#posts, 2, "reissued as B")
+
+  -- A finally lands. Its stale success handler must not clear B's inFlight.
+  settle(pending, 1, true)
+  now = 1000
+  w:enqueue("m", {}, { v = field(3) }, { interval = 60, dedup = false, dedupKey = "m::c" }, 3)
+  w:forceFlushAll()
+  os.time = origTime
+  assert_eq(#posts, 2, "B is still in flight, so no third concurrent request")
+end)
+
+test("a superseded request's late rejection does not restore its batch or retry", function()
+  local posts, pending = captureWrites()
+  local w = newWriter()
+  local now = 1000
+  local origTime = os.time
+  os.time = function()
+    return now
+  end
+
+  w:enqueue("m", {}, { v = field(1) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 1)
+  w:forceFlushAll() -- request A
+  w:enqueue("m", {}, { v = field(2) }, { interval = 60, dedup = false, dedupKey = "m::b" }, 2)
+  now = 1000 + 301
+  w:forceFlushAll() -- watchdog fires, reissues as request B, bumps the generation
+  os.time = origTime
+  assert_eq(#posts, 2, "reissued as B")
+
+  local m60 = w._measurements["m@60"]
+  local retryBefore = m60.retryIndex
+  settle(pending, 1, false) -- A's late rejection, now stale
+  assert_eq(m60.retryIndex, retryBefore, "stale rejection did not advance the backoff ladder")
+  assert_true(m60.timerName == nil, "stale rejection did not arm a retry timer")
+end)
+
+test("a restored batch is kept even when it overshoots the cap", function()
+  local _, pending = captureWrites()
+  local w = newWriter()
+  local function enq(i)
+    w:enqueue("m", {}, { v = field(i) }, { interval = 60, dedup = false, maxBuffer = 3, dedupKey = "m::" .. i }, i)
+  end
+
+  enq(1)
+  enq(2)
+  enq(3)
+  w:forceFlushAll() -- batch [1,2,3] out, buffer empty, inFlight
+  enq(4)
+  enq(5)
+  enq(6) -- buffer fills to the cap of 3: [4,5,6]
+
+  settle(pending, 1, false) -- reject: restore [1,2,3] ahead of [4,5,6]
+
+  -- The restore keeps every point rather than dropping the batch it recovered,
+  -- overshooting the cap for one flush cycle. Trimming here would lose exactly
+  -- the retried points on a transient failure the next flush would have cleared.
+  local m60 = w._measurements["m@60"]
+  assert_eq(#m60.buffer, 6, "recovered and buffered points all kept, cap overshot transiently")
+  assert_eq(w._metrics.pointsDropped, 0, "the restore drops nothing")
+  -- Order matters: the recovered batch goes to the front, ahead of what was
+  -- enqueued while it was out, so a later cap eviction takes the oldest first.
+  assert_true(m60.buffer[1]:find("v=1i", 1, true) ~= nil, "recovered batch sits at the front, not appended")
+  assert_true(m60.buffer[6]:find("v=6i", 1, true) ~= nil, "points enqueued during the flush stay at the back")
+  -- The published variable must track the restore, not read a stale zero while
+  -- points pile up unsent through an outage.
+  assert_eq(tonumber(Variables["INFLUX_POINTS_BUFFERED"]), 6, "buffered variable reflects the restore")
+end)
+
 print(string.format("\n%d passed, %d failed\n", passed, failed))
 if failed > 0 then
   os.exit(1)

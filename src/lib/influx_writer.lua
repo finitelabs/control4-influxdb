@@ -300,12 +300,17 @@ function InfluxWriter:new(opts)
   --- @type table<string, table>
   instance._measurements = {}
 
+  --- Set by shutdown() so no flush path can re-arm a timer into a driver that
+  --- is going away.
+  instance._shuttingDown = false
+
   --- Global metrics
   instance._metrics = {
     pointsBuffered = 0,
     pointsWritten = 0,
     pointsDropped = 0,
     writeErrors = 0,
+    watchdogFires = 0,
     lastWriteTimestamp = 0,
   }
 
@@ -343,6 +348,15 @@ function InfluxWriter:_getMeasurementState(stateKey, measurementName, intervalSe
       lastValues = {},
       lastFlushTime = 0,
       inFlight = false,
+      -- The batch currently in flight, stashed so the watchdog can put it back
+      -- instead of losing it.
+      inFlightBatch = nil,
+      -- Bumped by the watchdog on a reissue, so a lost request's late handler is
+      -- fenced off instead of clobbering the reissued request's state.
+      epoch = 0,
+      -- 1-based index into constants.RETRY_INTERVALS; advances on each retriable
+      -- failure, resets to 1 on a successful write.
+      retryIndex = 1,
       intervalSecs = intervalSecs or constants.DEFAULT_WRITE_INTERVAL,
       maxBuffer = maxBuffer or constants.MAX_BUFFER_SIZE,
       dedupEnabled = dedupEnabled ~= false, -- default true
@@ -358,6 +372,7 @@ function InfluxWriter:_updateMetricVariables()
   values:update("INFLUX_POINTS_WRITTEN", m.pointsWritten, "INT")
   values:update("INFLUX_POINTS_DROPPED", m.pointsDropped, "INT")
   values:update("INFLUX_WRITE_ERRORS", m.writeErrors, "INT")
+  values:update("INFLUX_WATCHDOG_FIRES", m.watchdogFires, "INT")
   values:update("INFLUX_LAST_WRITE_TS", m.lastWriteTimestamp > 0 and m.lastWriteTimestamp or "", "STRING")
 end
 
@@ -433,6 +448,9 @@ end
 --- @param stateKey string
 --- @param state table
 function InfluxWriter:_armFlushTimer(stateKey, state)
+  if self._shuttingDown then
+    return -- teardown in progress; a re-armed timer would fire into a dead driver
+  end
   local timerName = "InfluxWriter_" .. stateKey
   if state.timerName then
     return -- already armed
@@ -448,11 +466,42 @@ function InfluxWriter:_armFlushTimer(stateKey, state)
   end)
 end
 
+--- Put a batch that failed to send back at the front of the buffer, ahead of
+--- anything enqueued while it was out, so the recovered points keep their order.
+---
+--- This can transiently push the buffer past maxBuffer by up to one batch. That
+--- is deliberate: the overshoot is bounded (enqueue evicts one per new point, so
+--- the level pins at maxBuffer + batch rather than growing) and drains as flushes
+--- succeed. Trimming to the cap here was rejected because the recovered batch is
+--- the front, so a trim would drop it immediately and unconditionally, whereas
+--- leaving it lets a prompt retry save it before enqueue's FIFO eviction reaches
+--- it.
+--- @param state table
+--- @param batch string[]
+function InfluxWriter:_restoreBatch(state, batch)
+  local restored = {}
+  for _, l in ipairs(batch) do
+    restored[#restored + 1] = l
+  end
+  for _, l in ipairs(state.buffer) do
+    restored[#restored + 1] = l
+  end
+  state.buffer = restored
+  self._metrics.pointsBuffered = self._metrics.pointsBuffered + #batch
+  -- Publish here: the retriable-rejection caller updates variables before the
+  -- restore, so without this INFLUX_POINTS_BUFFERED would read stale (zero
+  -- through an outage while points pile up). The watchdog caller publishes again
+  -- after its own watchdogFires bump, so that publish still does real work.
+  self:_updateMetricVariables()
+end
+
 --- Flush a single measurement's buffer to InfluxDB.
 ---
---- Never more than one request outstanding per buffer: overlapping flushes fed
---- the load that caused their own timeouts. Callers wanting an immediate flush
---- cancel the armed timer first; there is no flag to bypass this.
+--- At most one request outstanding per buffer under normal operation:
+--- overlapping flushes fed the load that caused their own timeouts. Callers
+--- wanting an immediate flush cancel the armed timer first. The only bypass is
+--- the in-flight watchdog below, which reissues after a lost callback and fences
+--- the stale request off with a generation stamp so the two never race.
 --- @param stateKey string
 function InfluxWriter:_flushMeasurement(stateKey)
   local state = self._measurements[stateKey]
@@ -461,9 +510,38 @@ function InfluxWriter:_flushMeasurement(stateKey)
   end
 
   if state.inFlight then
-    log:debug("InfluxWriter: flush for '%s' already in flight, re-arming", stateKey)
-    self:_armFlushTimer(stateKey, state)
-    return
+    -- Watchdog: a flush clears inFlight in both promise handlers, so if it is
+    -- still set long after lastFlushTime the HTTP callback was lost and the
+    -- buffer would otherwise wedge until reload. Recover it and fall through to
+    -- reissue.
+    local stalledFor = os.time() - (state.lastFlushTime or 0)
+    local threshold = math.max(
+      constants.INFLIGHT_WATCHDOG_MIN_SECS,
+      (state.intervalSecs or constants.DEFAULT_WRITE_INTERVAL) * constants.INFLIGHT_WATCHDOG_INTERVALS
+    )
+    if stalledFor <= threshold then
+      log:debug("InfluxWriter: flush for '%s' already in flight, re-arming", stateKey)
+      self:_armFlushTimer(stateKey, state)
+      return
+    end
+    log:warn(
+      "InfluxWriter: flush for '%s' stuck in flight for %ds (lost HTTP callback); clearing to recover",
+      stateKey,
+      stalledFor
+    )
+    -- Put the stuck batch back at the front so a genuinely lost request is a
+    -- dedup-able duplicate (InfluxDB dedups on measurement+tags+timestamp)
+    -- rather than a silent loss. Bump the generation so the lost request's
+    -- handlers, if they ever fire, no-op instead of clearing the reissue's
+    -- inFlight or restoring this batch a second time.
+    if state.inFlightBatch then
+      self:_restoreBatch(state, state.inFlightBatch)
+    end
+    state.inFlightBatch = nil
+    state.inFlight = false
+    state.epoch = state.epoch + 1
+    self._metrics.watchdogFires = self._metrics.watchdogFires + 1
+    self:_updateMetricVariables()
   end
 
   -- Build URL from current config
@@ -500,12 +578,21 @@ function InfluxWriter:_flushMeasurement(stateKey)
 
   state.lastFlushTime = os.time()
   state.inFlight = true
+  state.inFlightBatch = batch
+  -- Snapshot the generation so a watchdog reissue (which bumps it) fences this
+  -- request's handlers off from the reissued one's state.
+  local epoch = state.epoch
 
   log:info("InfluxWriter: flushing %d points for '%s' (%d remaining)", batchSize, stateKey, #state.buffer)
 
   InfluxWriter.postBatch(url, cfg.token or "", batch)
     :next(function(result)
+      if epoch ~= state.epoch then
+        return -- superseded by a watchdog reissue; a lost request's late callback
+      end
       state.inFlight = false
+      state.inFlightBatch = nil
+      state.retryIndex = 1
       self._metrics.pointsWritten = self._metrics.pointsWritten + batchSize
       self._metrics.lastWriteTimestamp = os.time()
       self:_updateMetricVariables()
@@ -520,7 +607,11 @@ function InfluxWriter:_flushMeasurement(stateKey)
       end
     end)
     :next(nil, function(err)
+      if epoch ~= state.epoch then
+        return -- superseded by a watchdog reissue; do not restore this batch or retry
+      end
       state.inFlight = false
+      state.inFlightBatch = nil
       self._metrics.writeErrors = self._metrics.writeErrors + 1
       self:_updateMetricVariables()
 
@@ -529,19 +620,17 @@ function InfluxWriter:_flushMeasurement(stateKey)
       end
 
       if err.retriable then
-        -- Put batch back at the front of the buffer
-        local restored = {}
-        for _, l in ipairs(batch) do
-          restored[#restored + 1] = l
-        end
-        for _, l in ipairs(state.buffer) do
-          restored[#restored + 1] = l
-        end
-        state.buffer = restored
-        self._metrics.pointsBuffered = self._metrics.pointsBuffered + batchSize
+        self:_restoreBatch(state, batch)
 
-        -- Schedule retry
-        local delaySecs = err.retryAfter or constants.RETRY_INTERVALS[1]
+        -- Schedule retry on the backoff ladder. An explicit Retry-After wins the
+        -- delay, but the index still advances so a server sending short
+        -- Retry-After values cannot pin us at the bottom rung.
+        local idx = math.min(state.retryIndex or 1, #constants.RETRY_INTERVALS)
+        local delaySecs = err.retryAfter or constants.RETRY_INTERVALS[idx]
+        state.retryIndex = math.min(idx + 1, #constants.RETRY_INTERVALS)
+        if self._shuttingDown then
+          return -- batch is restored to the buffer above; teardown must not re-arm
+        end
         log:info("InfluxWriter: scheduling retry for '%s' in %ds", stateKey, delaySecs)
         local timerName = "InfluxWriter_" .. stateKey
         state.timerName = timerName
@@ -601,6 +690,12 @@ end
 --- Note: HTTP callbacks may still fire asynchronously after this.
 function InfluxWriter:shutdown()
   log:info("InfluxWriter: shutting down, flushing all buffers")
+
+  -- Set before cancelling timers and flushing: both flush paths can re-arm
+  -- (the in-flight branch, and the success handler when a batch was capped),
+  -- and the success handler fires asynchronously after this returns. The flag
+  -- makes ordering irrelevant -- no timer arms once teardown has begun.
+  self._shuttingDown = true
 
   for name, state in pairs(self._measurements) do
     if state.timerName then

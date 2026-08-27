@@ -14,6 +14,7 @@
 
 local log = require("lib.logging")
 local persist = require("lib.persist")
+local constants = require("constants")
 
 --- Persist keys used by this module.
 --- @type table<string, string>
@@ -23,9 +24,10 @@ local PERSIST_KEYS = {
   STATE = "connection_state",
 }
 
---- Exponential backoff schedule in seconds.
+--- Exponential backoff schedule in seconds. Shared with the write-retry path so
+--- the two ladders cannot drift.
 --- @type number[]
-local BACKOFF_SCHEDULE = { 5, 15, 30, 60, 300, 900 }
+local BACKOFF_SCHEDULE = constants.RETRY_INTERVALS
 
 --- Connection state enum.
 --- @enum ConnectionState

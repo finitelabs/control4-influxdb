@@ -58,10 +58,18 @@ return {
   --- @type number
   MAX_BUFFER_BYTES = 1048576,
 
-  --- Exponential backoff schedule for reconnect retries (seconds).
+  --- Exponential backoff schedule for reconnect and write retries (seconds).
   --- Sequence: 5s, 15s, 30s, 1m, 5m, 15m.
   --- @type number[]
   RETRY_INTERVALS = { 5, 15, 30, 60, 300, 900 },
+
+  --- Clear a flush stuck in-flight (a lost HTTP callback) once it has been
+  --- outstanding for the larger of this many seconds and a few write intervals,
+  --- generous enough not to clobber a slow-but-alive request into a duplicate.
+  --- @type number
+  INFLIGHT_WATCHDOG_MIN_SECS = 300,
+  --- @type number
+  INFLIGHT_WATCHDOG_INTERVALS = 5,
 
   --- Default outage notification threshold in seconds (5 minutes).
   --- @type number
