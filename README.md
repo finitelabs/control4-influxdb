@@ -19,16 +19,16 @@ automatic offline buffering and retry.
 This community fork keeps everything above and adds a faster, convention based
 path so you do not have to hand bind every device.
 
-- **Auto Configure Measurements** (Actions tab). One click. The driver enumerates
-  every device, reads its live variables, and builds standard measurements
-  automatically:
+- **Auto Configure Measurements** (Actions tab). One click. The driver
+  enumerates every device, reads its live variables, and builds standard
+  measurements automatically:
   - `tv_usage` (power_on, current source) for displays
   - `light_usage` (is_on, brightness) for lighting loads
   - `security_status` (armed state) for security partitions
   - `device_faults` for known fault variables (over temperature, short circuit,
-    UPS on battery, security trouble, arm failed, and so on)
-  Set the connection (URL, token, database) and the new **Site** property first,
-  then click the action. Re run it any time the project changes.
+    UPS on battery, security trouble, arm failed, and so on) Set the connection
+    (URL, token, database) and the new **Site** property first, then click the
+    action. Re run it any time the project changes.
 - **Site** property. Writes a literal `site` tag on every measurement so one
   database can hold many homes and still separate them cleanly.
 - **Sensible write model.** Usage measurements use Dedup ON (write on change) to
