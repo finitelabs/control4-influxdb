@@ -979,6 +979,7 @@ local function buildAutoConfig()
   return {
     light_usage = {
       fieldDefs = { "is_on", "level" },
+      fieldTypes = { is_on = "integer", level = "integer" },
       tagDefs = { "site", "device_name", "room_name" },
       interval = "5m",
       enabled = true,
@@ -987,6 +988,7 @@ local function buildAutoConfig()
     },
     tv_usage = {
       fieldDefs = { "power_on" },
+      fieldTypes = { power_on = "integer" },
       tagDefs = { "site", "room_name", "display_name", "source_name" },
       interval = "1m",
       enabled = true,
@@ -995,6 +997,7 @@ local function buildAutoConfig()
     },
     security_status = {
       fieldDefs = { "armed" },
+      fieldTypes = { armed = "integer" },
       tagDefs = { "site", "panel_name" },
       interval = "5m",
       enabled = true,
@@ -1003,6 +1006,7 @@ local function buildAutoConfig()
     },
     device_faults = {
       fieldDefs = { "fault_active" },
+      fieldTypes = { fault_active = "integer" },
       tagDefs = { "site", "device_name", "room_name", "subsystem", "fault_code" },
       interval = "5m",
       enabled = true,
