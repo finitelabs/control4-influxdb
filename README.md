@@ -14,30 +14,6 @@ an InfluxDB time-series database. Configure measurements, bind Control4
 variables as fields or tags, and let the driver handle batched writes with
 automatic offline buffering and retry.
 
-# <span style="color:#020A47">BIG AV Fork Additions</span>
-
-This community fork keeps everything above and adds a faster, convention based
-path so you do not have to hand bind every device.
-
-- **Auto Configure Measurements** (Actions tab). One click. The driver
-  enumerates every device, reads its live variables, and builds standard
-  measurements automatically: `tv_usage` (power and current source for
-  displays), `light_usage` (on state and brightness for lighting loads),
-  `security_status` (armed state for security partitions), and `device_faults`
-  (known fault variables such as over temperature, short circuit, UPS on
-  battery, security trouble, and arm failed). Set the connection properties and
-  the **Site** property first, then run the action. Re run it any time the
-  project changes.
-- **Site** property. Writes a literal `site` tag on every measurement so one
-  InfluxDB database can hold many homes and still separate them cleanly.
-- **Sensible write model.** Usage measurements use Dedup ON (write on change) to
-  stay light on storage; faults and security use a heartbeat so their current
-  state is always fresh for alerting. Field types are pinned to integers so a
-  stray string can never poison a column type.
-
-The `device_faults` layer is the basis for proactive service: alert when a fault
-goes active, then summarize what was caught in a periodic health report.
-
 # <span style="color:#020A47">Index</span>
 
 <div style="font-size: small">
@@ -45,6 +21,8 @@ goes active, then summarize what was caught in a periodic health report.
 - [System Requirements](#system-requirements)
 
 - [Features](#features)
+
+- [Automatic Configuration](#automatic-configuration)
 
 - [Installer Setup](#installer-setup)
 
@@ -87,6 +65,30 @@ goes active, then summarize what was caught in a periodic health report.
 - Exponential-backoff retry when the InfluxDB server is unreachable
 - Extended outage notification event
 - Connection status events and conditionals for programming
+
+# <span style="color:#020A47">Automatic Configuration</span>
+
+Measurements can be configured by hand, or built for you from the project.
+
+**Auto Configure Measurements** (Actions tab) enumerates every device, reads its
+live variables, and creates a standard set of measurements: `tv_usage` (power
+and current source for displays), `light_usage` (on state and brightness for
+lighting loads), `security_status` (armed state for security partitions), and
+`device_faults` (known fault variables such as over temperature, short circuit,
+UPS on battery, security trouble, and arm failed). Set the connection properties
+first, then run the action. Re run it any time the project changes.
+
+Devices are matched on the variables they actually expose rather than on their
+driver name, so the results hold across manufacturers. Displays must expose both
+`POWER_STATE` and `CURRENT_INPUT`, which avoids matching recorders and streaming
+pseudo devices; lighting loads are keyed on `LIGHT_STATE`; security partitions
+are keyed on `PARTITION_STATE`, whose string values are mapped to integers.
+
+Usage measurements are created with dedup on, so a row is written when a value
+changes. Security and fault measurements are created with dedup off, so the
+interval acts as a heartbeat and current state stays fresh for alerting. Field
+types are pinned to integers so a stray string cannot fix a column to the wrong
+type on first write.
 
 # <span style="color:#020A47">Installer Setup</span>
 

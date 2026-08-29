@@ -3,7 +3,7 @@ DC_PID = 0 -- TODO: Assign DriverCentral product ID
 DC_X = nil
 DC_FILENAME = "influxdb.c4z"
 --#else
-DRIVER_GITHUB_REPO = "Racklord/control4-influxdb"
+DRIVER_GITHUB_REPO = "finitelabs/control4-influxdb"
 DRIVER_FILENAMES = {
   "influxdb.c4z",
 }
@@ -70,6 +70,24 @@ local function getDriverIds()
   end
   table.sort(ids)
   return ids
+end
+
+--- Read the project name from the location tree.
+--- There is no C4:GetProjectName. The project is item id 1, type 1 in
+--- LOCATIONS; GetProjectHierarchy stops at the site level and never returns it.
+--- Must not be called from OnDriverInit: GetProjectItems is unavailable there.
+--- @return string? projectName nil when the name cannot be resolved
+local function getProjectName()
+  local ok, xml = pcall(C4.GetProjectItems, C4, "LOCATIONS", "LIMIT_DEVICE_DATA")
+  if not ok or type(xml) ~= "string" then
+    return nil
+  end
+  -- Anchored on id and type so a room or building can never match.
+  local name = xml:match("<id>1</id>%s*<name>(.-)</name>%s*<type>1</type>")
+  if IsEmpty(name) then
+    return nil
+  end
+  return (name:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&amp;", "&"))
 end
 
 --- Sync a property value to all other instances of this driver.
@@ -889,7 +907,7 @@ end
 local function buildAutoConfig()
   local site = Properties["Site"]
   if IsEmpty(site) then
-    site = "home"
+    site = getProjectName() or "home"
   end
 
   local lights, tvs, sec, faults = {}, {}, {}, {}
@@ -1078,6 +1096,16 @@ function OnDriverLateInit()
 
   -- Set driver version
   UpdateProperty("Driver Version", C4:GetDeviceData(C4:GetDeviceID(), "version"))
+
+  -- Seed the site tag from the project name so a fresh install is labelled
+  -- without the installer inventing an id. Only ever fills a blank property.
+  if IsEmpty(Properties["Site"]) then
+    local projectName = getProjectName()
+    if projectName ~= nil then
+      log:info("Defaulting Site to the project name '%s'", projectName)
+      UpdateProperty("Site", projectName)
+    end
+  end
 
   log:info("InfluxDB Data Logger initializing")
 

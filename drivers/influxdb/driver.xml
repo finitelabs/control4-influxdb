@@ -162,7 +162,7 @@
         <name>Site</name>
         <type>STRING</type>
         <default/>
-        <description>Site tag written on every measurement (the home id, e.g. main_house). Used by Auto Configure.</description>
+        <description>Identifies this system in the database. Written as a site tag on every measurement so one database can hold several systems and still separate them. Defaults to the project name.</description>
       </property>
       <property>
         <name>Write Precision</name>
