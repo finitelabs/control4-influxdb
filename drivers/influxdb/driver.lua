@@ -73,17 +73,18 @@ local function getDriverIds()
 end
 
 --- Read the project name from the location tree.
---- There is no C4:GetProjectName. The project is item id 1, type 1 in
---- LOCATIONS; GetProjectHierarchy stops at the site level and never returns it.
+--- There is no C4:GetProjectName. NO_ROOT_TAGS drops the wrapper so the
+--- project item leads, making the first name the project's own.
 --- Must not be called from OnDriverInit: GetProjectItems is unavailable there.
 --- @return string? projectName nil when the name cannot be resolved
 local function getProjectName()
-  local ok, xml = pcall(C4.GetProjectItems, C4, "LOCATIONS", "LIMIT_DEVICE_DATA")
+  -- pcall and the type check keep a nil or an unexpected return from erroring
+  -- out of driver init; the property simply stays as the installer left it.
+  local ok, xml = pcall(C4.GetProjectItems, C4, "LOCATIONS", "LIMIT_DEVICE_DATA", "NO_ROOT_TAGS")
   if not ok or type(xml) ~= "string" then
     return nil
   end
-  -- Anchored on id and type so a room or building can never match.
-  local name = xml:match("<id>1</id>%s*<name>(.-)</name>%s*<type>1</type>")
+  local name = xml:match("<name>(.-)</name>")
   if IsEmpty(name) then
     return nil
   end
