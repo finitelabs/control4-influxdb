@@ -7,9 +7,6 @@
 
 local T = require("testlib")
 
-local script_dir = debug.getinfo(1, "S").source:match("^@(.+)/[^/]+$") or "."
-package.path = script_dir .. "/../src/?.lua;" .. script_dir .. "/../src/?/init.lua;" .. package.path
-
 require("c4_shim")
 
 -- Control4 exposes these as globals; the shim owns the C4 methods, not these.

@@ -7,9 +7,6 @@
 
 local T = require("testlib")
 
-local script_dir = debug.getinfo(1, "S").source:match("^@(.+)/[^/]+$") or "."
-package.path = script_dir .. "/../src/?.lua;" .. script_dir .. "/../src/?/init.lua;" .. package.path
-
 -- The shim owns the C4 environment, including the variable API it validates the
 -- way Director does. The real helpers come next so the tests exercise what the
 -- driver actually runs: IsEmpty/tointeger/toboolean/TableDeepCopy from utils,
