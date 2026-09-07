@@ -1,38 +1,38 @@
---- Tests for lib/offline_buffer.lua
---- Run from repo root: lua test/test_offline_buffer.lua
+-- Tests for lib/offline_buffer.lua
+--
+-- Run from the driver root:
+--   make test
+-- or:
+--   ./test/run_test.sh test_offline_buffer.lua
 
--- Set up the package path to find our modules
-local script_dir = debug.getinfo(1, "S").source:match("^@(.+)/[^/]+$") or "."
-package.path = script_dir .. "/../src/?.lua;" .. script_dir .. "/../src/?/init.lua;" .. package.path
+local T = require("testlib")
 
--- Load shim first (sets up C4 globals)
-dofile(script_dir .. "/c4_shim.lua")
+require("c4_shim")
 
--- Minimal stubs for C4 functions used by modules
-function UpdateProperty(name, value) end
-function Serialize(v)
+-- Control4 exposes these as globals; the shim owns the C4 methods, not these.
+function UpdateProperty(name, value) end -- luacheck: ignore
+
+function Serialize(v) -- luacheck: ignore
   if type(v) == "table" then
-    -- very small serializer sufficient for tests
     local parts = {}
     for k, val in pairs(v) do
-      if type(val) == "string" then
+      local kind = type(val)
+      if kind == "string" then
         parts[#parts + 1] = string.format("[%q]=%q", tostring(k), val)
-      elseif type(val) == "number" then
+      elseif kind == "number" or kind == "boolean" then
         parts[#parts + 1] = string.format("[%q]=%s", tostring(k), tostring(val))
-      elseif type(val) == "boolean" then
-        parts[#parts + 1] = string.format("[%q]=%s", tostring(k), tostring(val))
-      elseif type(val) == "table" then
+      elseif kind == "table" then
         parts[#parts + 1] = string.format("[%q]=%s", tostring(k), Serialize(val))
       end
     end
     return "{" .. table.concat(parts, ",") .. "}"
   elseif type(v) == "string" then
     return string.format("%q", v)
-  else
-    return tostring(v)
   end
+  return tostring(v)
 end
-function Deserialize(s)
+
+function Deserialize(s) -- luacheck: ignore
   if not s then
     return nil
   end
@@ -42,7 +42,8 @@ function Deserialize(s)
   end
   return nil
 end
-function TableDeepCopy(t)
+
+function TableDeepCopy(t) -- luacheck: ignore
   if type(t) ~= "table" then
     return t
   end
@@ -53,195 +54,187 @@ function TableDeepCopy(t)
   return copy
 end
 
--- Grab a reference to the persist module so we can flush its cache between tests
--- (persist is a singleton with internal caching; we need a clean slate per test)
 local persist_mod = require("lib.persist")
 
+--- persist is a singleton that caches, so a key written by one scenario would
+--- still resolve in the next. Clear through the public API: the rendered shim
+--- keeps its backing store module-local.
 local function resetPersist()
-  -- Delete each persisted key from the shim's backing store via the public API,
-  -- then drop the persist module's cache so it re-reads from the now-empty store.
-  -- (The rendered shim keeps its backing store module-local, so reset through
-  -- C4:PersistDeleteValue rather than reaching into it.)
   for k in pairs(persist_mod._persist) do
     C4:PersistDeleteValue(k)
   end
   persist_mod._persist = {}
 end
 
--- Simple test harness
-local passed = 0
-local failed = 0
-
-local function test(name, fn)
+--- One scenario against a clean persist store. testlib assertions do not raise,
+--- so an error escaping fn is an unexpected crash rather than a failed
+--- expectation, and has to be recorded or the scenario passes by vanishing.
+local function case(name, fn)
   resetPersist()
   local ok, err = pcall(fn)
-  if ok then
-    print("  PASS: " .. name)
-    passed = passed + 1
-  else
-    print("  FAIL: " .. name .. "\n    " .. tostring(err))
-    failed = failed + 1
+  if not ok then
+    T.check(name, false, err)
   end
 end
-
-local function assert_eq(a, b, msg)
-  if a ~= b then
-    error(string.format("%s: expected %s, got %s", msg or "assertion failed", tostring(b), tostring(a)))
-  end
-end
-
-local function assert_true(v, msg)
-  if not v then
-    error(msg or "expected true")
-  end
-end
-
--- ---------------------------------------------------------------
-print("\n=== OfflineBuffer tests ===\n")
 
 local OfflineBuffer = require("lib.offline_buffer")
 
--- Helper: create a fresh buffer with small limits for testing
 local function newBuf(opts)
   return OfflineBuffer:new(opts)
 end
 
--- ---------------------------------------------------------------
-test("initial state is Disconnected", function()
-  local b = newBuf()
-  assert_eq(b:getState(), "Disconnected")
+T.section("Initial state")
+
+case("initial state", function()
+  T.eq("a fresh buffer starts Disconnected", newBuf():getState(), "Disconnected")
 end)
 
-test("initial size is 0", function()
-  local b = newBuf()
-  assert_eq(b:size(), 0)
+case("initial size", function()
+  T.eq("a fresh buffer holds no points", newBuf():size(), 0)
 end)
 
-test("push stores points", function()
+T.section("Push and eviction")
+
+case("push stores points", function()
   local b = newBuf()
   b:push({ "point1", "point2", "point3" })
-  assert_eq(b:size(), 3)
+  T.eq("size counts every pushed point", b:size(), 3)
 end)
 
-test("FIFO eviction when over max_points", function()
+case("FIFO eviction when over max_points", function()
   local b = newBuf({ max_points = 5, max_bytes = 99999 })
   b:push({ "a", "b", "c", "d", "e" })
-  assert_eq(b:size(), 5)
-  -- Push 2 more; oldest 2 should be evicted
+  T.eq("size holds at the cap when exactly full", b:size(), 5)
+
   local evicted = b:push({ "f", "g" }) or 0
-  assert_eq(b:size(), 5)
-  assert_eq(evicted, 2)
-  -- Verify oldest were dropped (a and b)
+  T.eq("size stays at the cap after overflow", b:size(), 5)
+  T.eq("push reports the two evicted points", evicted, 2)
+
   local buf = b:_load()
-  assert_eq(buf[1], "c")
-  assert_eq(buf[5], "g")
+  T.eq("the oldest surviving point is the third pushed", buf[1], "c")
+  T.eq("the newest point is last", buf[5], "g")
 end)
 
-test("clear empties the buffer", function()
+case("clear empties the buffer", function()
   local b = newBuf()
   b:push({ "x", "y", "z" })
   b:clear()
-  assert_eq(b:size(), 0)
+  T.eq("clear drops every point", b:size(), 0)
 end)
 
-test("state changes fire onStateChange callback", function()
+T.section("State transitions")
+
+case("state changes fire onStateChange", function()
   local b = newBuf()
   local last_state = nil
   b:setCallbacks(nil, function(state)
     last_state = state
   end, nil)
+
   b:_setState("Connected")
-  assert_eq(last_state, "Connected")
+  T.eq("the callback sees Connected", last_state, "Connected")
+
   b:_setState("Disconnected")
-  assert_eq(last_state, "Disconnected")
+  T.eq("the callback sees Disconnected", last_state, "Disconnected")
 end)
 
-test("setState does not fire callback when state unchanged", function()
+case("no callback when state unchanged", function()
   local b = newBuf()
   b:_setState("Disconnected")
   local count = 0
   b:setCallbacks(nil, function()
     count = count + 1
   end, nil)
-  b:_setState("Disconnected") -- same state
-  assert_eq(count, 0)
+  b:_setState("Disconnected")
+  T.eq("re-entering the current state fires nothing", count, 0)
 end)
 
-test("backoff starts at first schedule entry", function()
+case("reconnecting to Connected resets disconnectedAt", function()
   local b = newBuf()
-  assert_eq(b:_backoffDelay(), 5)
+  b._disconnectedAt = os.time() - 100
+  b:_setState("Reconnecting")
+  b:_setState("Connected")
+  T.eq("disconnectedAt clears once Connected", b._disconnectedAt, nil)
 end)
 
-test("backoff advances on failure", function()
+T.section("Retry backoff")
+
+case("backoff starts at the first schedule entry", function()
+  T.eq("first delay is 5s", newBuf():_backoffDelay(), 5)
+end)
+
+case("backoff advances on failure", function()
   local b = newBuf()
   b:_advanceBackoff()
-  assert_eq(b:_backoffDelay(), 15)
+  T.eq("second delay is 15s", b:_backoffDelay(), 15)
   b:_advanceBackoff()
-  assert_eq(b:_backoffDelay(), 30)
+  T.eq("third delay is 30s", b:_backoffDelay(), 30)
 end)
 
-test("backoff caps at max schedule entry", function()
+case("backoff caps at the last schedule entry", function()
   local b = newBuf()
   for _ = 1, 20 do
     b:_advanceBackoff()
   end
-  assert_eq(b:_backoffDelay(), 900)
+  T.eq("delay saturates at 900s", b:_backoffDelay(), 900)
 end)
 
-test("onWriteFailure with retriable=true buffers points and advances backoff", function()
+T.section("Write outcomes")
+
+case("retriable failure buffers points and advances backoff", function()
   local b = newBuf()
   b:onWriteFailure(true, { "p1", "p2" })
-  assert_eq(b:size(), 2)
-  assert_eq(b._backoffIndex, 2)
-  assert_eq(b:getState(), "Disconnected")
+  T.eq("the undelivered points are retained", b:size(), 2)
+  T.eq("backoff advanced one step", b._backoffIndex, 2)
+  T.eq("the buffer is Disconnected", b:getState(), "Disconnected")
 end)
 
-test("onWriteFailure with retriable=false does not buffer points", function()
+case("non-retriable failure discards points", function()
   local b = newBuf()
   b:onWriteFailure(false, { "p1", "p2" })
-  assert_eq(b:size(), 0)
+  T.eq("nothing is buffered for retry", b:size(), 0)
 end)
 
-test("onWriteSuccess removes delivered points", function()
+case("onWriteSuccess removes delivered points", function()
   local b = newBuf()
   b:push({ "a", "b", "c", "d", "e" })
   b:onWriteSuccess(3)
-  -- Should have removed first 3
-  assert_eq(b:size(), 2)
+  T.eq("only the undelivered points remain", b:size(), 2)
+
   local buf = b:_load()
-  assert_eq(buf[1], "d")
-  assert_eq(buf[2], "e")
+  T.eq("the delivered prefix is gone", buf[1], "d")
+  T.eq("the tail is intact", buf[2], "e")
 end)
 
-test("onWriteSuccess with full drain transitions to Connected", function()
+case("a full drain transitions to Connected", function()
   local b = newBuf()
   b:push({ "a", "b" })
-  -- Simulate the timer firing synchronously for this test
   b._retryTimerId = nil
-  -- Override SetTimer to fire immediately
+
   local orig_set = C4.SetTimer
-  C4.SetTimer = function(self, ms, cb, rep)
-    -- Don't actually schedule; just return a stub
+  C4.SetTimer = function()
     return { Cancel = function() end }
   end
   b:onWriteSuccess(2)
-  -- Buffer is now empty, state should be Connected
-  assert_eq(b:getState(), "Connected")
   C4.SetTimer = orig_set
+
+  T.eq("draining the buffer marks it Connected", b:getState(), "Connected")
 end)
 
-test("outage threshold fires onOutage callback", function()
-  local b = newBuf({ outage_threshold = 0 }) -- threshold of 0 = fires immediately
-  b._disconnectedAt = os.time() - 1 -- 1 second ago
+T.section("Outage notification")
+
+case("outage threshold fires onOutage", function()
+  local b = newBuf({ outage_threshold = 0 })
+  b._disconnectedAt = os.time() - 1
   local fired = false
   b:setCallbacks(nil, nil, function()
     fired = true
   end)
   b:_checkOutageThreshold()
-  assert_true(fired, "outage callback should have fired")
+  T.truthy("the outage callback fired", fired)
 end)
 
-test("outage notification fires only once per outage", function()
+case("outage notification fires once per outage", function()
   local b = newBuf({ outage_threshold = 0 })
   b._disconnectedAt = os.time() - 1
   local count = 0
@@ -251,18 +244,12 @@ test("outage notification fires only once per outage", function()
   b:_checkOutageThreshold()
   b:_checkOutageThreshold()
   b:_checkOutageThreshold()
-  assert_eq(count, 1)
+  T.eq("repeated checks do not re-notify", count, 1)
 end)
 
-test("reconnecting to Connected resets disconnectedAt", function()
-  local b = newBuf()
-  b._disconnectedAt = os.time() - 100
-  b:_setState("Reconnecting")
-  b:_setState("Connected")
-  assert_true(b._disconnectedAt == nil, "disconnectedAt should be nil after connecting")
-end)
+T.section("Teardown")
 
-test("destroy cancels retry timer", function()
+case("destroy cancels the retry timer", function()
   local b = newBuf()
   local cancelled = false
   b._retryTimerId = {
@@ -271,12 +258,8 @@ test("destroy cancels retry timer", function()
     end,
   }
   b:destroy()
-  assert_true(cancelled, "timer should be cancelled on destroy")
-  assert_true(b._retryTimerId == nil, "retryTimerId should be nil after destroy")
+  T.truthy("the pending timer was cancelled", cancelled)
+  T.eq("the timer handle is released", b._retryTimerId, nil)
 end)
 
--- ---------------------------------------------------------------
-print(string.format("\n%d passed, %d failed\n", passed, failed))
-if failed > 0 then
-  os.exit(1)
-end
+T.finish()
