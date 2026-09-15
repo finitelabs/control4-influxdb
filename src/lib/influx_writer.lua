@@ -9,10 +9,6 @@ require("lib.utils")
 
 require("drivers-common-public.global.timer")
 
----------------------------------------------------------------------------
--- Module
----------------------------------------------------------------------------
-
 --- @class InfluxWriter
 local InfluxWriter = {}
 InfluxWriter.__index = InfluxWriter
@@ -21,8 +17,7 @@ InfluxWriter.__index = InfluxWriter
 -- Line Protocol Helpers
 ---------------------------------------------------------------------------
 
---- Escape special characters in a measurement name.
---- Measurement names: escape commas and spaces.
+--- Escape a measurement name for line protocol.
 --- @param s string
 --- @return string
 local function escapeMeasurement(s)
@@ -32,8 +27,7 @@ local function escapeMeasurement(s)
   return s
 end
 
---- Escape special characters in a tag key, tag value, or field key.
---- These must escape: commas, equals, spaces.
+--- Escape a tag key, tag value, or field key for line protocol.
 --- @param s string
 --- @return string
 local function escapeTagOrKey(s)
@@ -44,8 +38,7 @@ local function escapeTagOrKey(s)
   return s
 end
 
---- Escape special characters in a field string value.
---- String values are double-quoted; escape double quotes and backslashes inside.
+--- Escape and quote a field string value for line protocol.
 --- @param s string
 --- @return string
 local function escapeFieldString(s)
@@ -55,8 +48,8 @@ local function escapeFieldString(s)
   return '"' .. s .. '"'
 end
 
---- Infer an InfluxDB value type from a raw value. Beside formatFieldValue so
---- the write path and the UI's preview cannot disagree.
+--- Kept beside formatFieldValue so the write path and the UI's preview cannot
+--- disagree.
 --- @param val any
 --- @return string valueType One of "integer", "float", "string", "boolean"
 function InfluxWriter.inferValueType(val)
@@ -84,22 +77,20 @@ end
 --- @return string|nil formatted, string|nil err
 local function formatFieldValue(value, valueType)
   if valueType == constants.VALUE_TYPES.INTEGER then
-    -- tofinite, not tonumber: math.floor(nan) formats as "0i" and math.floor(inf)
-    -- as int64-max, either of which InfluxDB accepts and stores as a plausible
-    -- wrong number. Refuse instead.
+    -- math.floor(nan) formats as "0i" and math.floor(inf) as int64-max, both of
+    -- which InfluxDB accepts and stores as a plausible wrong number.
     local n = tofinite(value)
     if n == nil then
       return nil, string.format("cannot coerce '%s' to integer", tostring(value))
     end
     return string.format("%di", math.floor(n))
   elseif valueType == constants.VALUE_TYPES.FLOAT then
-    -- tofinite, not tonumber: "%.15g" of nan/inf emits the literals nan/inf,
-    -- which have no line-protocol representation and 400-reject the whole batch.
+    -- "%.15g" of nan/inf emits literals that line protocol cannot represent, so
+    -- InfluxDB 400-rejects the whole batch.
     local n = tofinite(value)
     if n == nil then
       return nil, string.format("cannot coerce '%s' to float", tostring(value))
     end
-    -- Always include decimal point to ensure float typing
     local s = string.format("%.15g", n)
     if not s:find("%.") and not s:find("e") then
       s = s .. ".0"
@@ -145,10 +136,9 @@ function InfluxWriter.buildLine(measurement, tags, fields, timestampMs)
     return nil, "measurement name is required"
   end
 
-  -- Measurement
   local line = escapeMeasurement(measurement)
 
-  -- Tags (sorted for consistency and compression)
+  -- Sorted: InfluxDB compresses better with a consistent tag order.
   local tagKeys = {}
   for k in pairs(tags or {}) do
     tagKeys[#tagKeys + 1] = k
@@ -162,7 +152,6 @@ function InfluxWriter.buildLine(measurement, tags, fields, timestampMs)
     end
   end
 
-  -- Fields (at least one required)
   local fieldParts = {}
   for fieldKey, fieldDef in pairs(fields or {}) do
     local formatted, err = formatFieldValue(fieldDef.value, fieldDef.type)
@@ -180,7 +169,6 @@ function InfluxWriter.buildLine(measurement, tags, fields, timestampMs)
   table.sort(fieldParts) -- deterministic ordering
   line = line .. " " .. table.concat(fieldParts, ",")
 
-  -- Optional timestamp
   if timestampMs then
     line = line .. " " .. string.format("%d", timestampMs)
   end
@@ -192,7 +180,6 @@ end
 -- HTTP Write Client
 ---------------------------------------------------------------------------
 
---- Error classification constants.
 --- @type table<string, boolean>
 local RETRIABLE_CODES = {
   [429] = true,
@@ -235,7 +222,6 @@ function InfluxWriter.postBatch(url, token, lines)
   log:debug("InfluxWriter.postBatch: posting %d lines to %s", #lines, url)
 
   C4:urlPost(url, payload, headers, false, function(ticketId, strData, responseCode, tHeaders, strError)
-    -- Network-level error
     if strError and strError ~= "" then
       log:error("InfluxWriter: network error: %s", strError)
       d:reject({ retriable = true, retryAfter = nil, errMsg = "network error: " .. strError })
@@ -256,7 +242,6 @@ function InfluxWriter.postBatch(url, token, lines)
         errMsg = "line protocol parse error (HTTP 422): " .. (strData or ""),
       })
     elseif responseCode == 429 then
-      -- Parse Retry-After header if present
       local retryAfter = nil
       if tHeaders then
         local ra = tHeaders["Retry-After"] or tHeaders["retry-after"]
@@ -298,7 +283,6 @@ function InfluxWriter:new(opts)
   opts = opts or {}
   local instance = setmetatable({}, self)
 
-  --- Callback: function() -> {url, token, database, precision}
   instance._getConfig = opts.getConfig or function()
     return {}
   end
@@ -315,7 +299,6 @@ function InfluxWriter:new(opts)
   --- is going away.
   instance._shuttingDown = false
 
-  --- Global metrics
   instance._metrics = {
     pointsBuffered = 0,
     pointsWritten = 0,
@@ -365,8 +348,8 @@ function InfluxWriter:_getMeasurementState(stateKey, measurementName, intervalSe
       -- Bumped by the watchdog on a reissue, so a lost request's late handler is
       -- fenced off instead of clobbering the reissued request's state.
       epoch = 0,
-      -- 1-based index into constants.RETRY_INTERVALS; advances on each retriable
-      -- failure, resets to 1 on a successful write.
+      -- Index into constants.RETRY_INTERVALS; advances on a retriable failure,
+      -- resets on a successful write.
       retryIndex = 1,
       intervalSecs = intervalSecs or constants.DEFAULT_WRITE_INTERVAL,
       maxBuffer = maxBuffer or constants.MAX_BUFFER_SIZE,
@@ -376,7 +359,6 @@ function InfluxWriter:_getMeasurementState(stateKey, measurementName, intervalSe
   return self._measurements[stateKey]
 end
 
---- Update driver variables with current metrics via the values lib.
 function InfluxWriter:_updateMetricVariables()
   local m = self._metrics
   values:update("INFLUX_POINTS_BUFFERED", m.pointsBuffered, "INT")
@@ -400,15 +382,13 @@ function InfluxWriter:enqueue(measurementName, tags, fields, opts, timestampMs)
   local dedupScope = opts.dedupKey or measurementName
   local state = self:_getMeasurementState(stateKey, measurementName, opts.interval, opts.maxBuffer, opts.dedup)
 
-  -- Build the line first (so we can check dedup before buffering)
   local line, err = InfluxWriter.buildLine(measurementName, tags, fields, timestampMs)
   if not line then
     log:warn("InfluxWriter.enqueue: skipping point for '%s': %s", measurementName, err or "")
     return
   end
 
-  -- Dedup check: skip if all field values unchanged since last flush
-  -- Per-call opts.dedup can override the measurement's default dedup setting
+  -- Dedup: skip when no field value changed since the last flush.
   local dedupActive = state.dedupEnabled
   if opts.dedup ~= nil then
     dedupActive = opts.dedup
@@ -430,7 +410,6 @@ function InfluxWriter:enqueue(measurementName, tags, fields, opts, timestampMs)
     end
   end
 
-  -- FIFO eviction if at max capacity
   if #state.buffer >= state.maxBuffer then
     table.remove(state.buffer, 1)
     self._metrics.pointsDropped = self._metrics.pointsDropped + 1
@@ -445,7 +424,6 @@ function InfluxWriter:enqueue(measurementName, tags, fields, opts, timestampMs)
   self._metrics.pointsBuffered = self._metrics.pointsBuffered + 1
   self:_updateMetricVariables()
 
-  -- Store last seen values for next dedup check
   local lastValues = state.lastValues[dedupScope] or {}
   for fieldKey, fieldDef in pairs(fields) do
     lastValues[fieldKey] = tostring(fieldDef.value)
@@ -480,13 +458,9 @@ end
 --- Put a batch that failed to send back at the front of the buffer, ahead of
 --- anything enqueued while it was out, so the recovered points keep their order.
 ---
---- This can transiently push the buffer past maxBuffer by up to one batch. That
---- is deliberate: the overshoot is bounded (enqueue evicts one per new point, so
---- the level pins at maxBuffer + batch rather than growing) and drains as flushes
---- succeed. Trimming to the cap here was rejected because the recovered batch is
---- the front, so a trim would drop it immediately and unconditionally, whereas
---- leaving it lets a prompt retry save it before enqueue's FIFO eviction reaches
---- it.
+--- This can transiently push the buffer past maxBuffer by one batch. The
+--- overshoot is bounded (enqueue evicts one per new point) and drains as flushes
+--- succeed; trimming here would drop the recovered batch unconditionally.
 --- @param state table
 --- @param batch string[]
 function InfluxWriter:_restoreBatch(state, batch)
@@ -499,20 +473,16 @@ function InfluxWriter:_restoreBatch(state, batch)
   end
   state.buffer = restored
   self._metrics.pointsBuffered = self._metrics.pointsBuffered + #batch
-  -- Publish here: the retriable-rejection caller updates variables before the
-  -- restore, so without this INFLUX_POINTS_BUFFERED would read stale (zero
-  -- through an outage while points pile up). The watchdog caller publishes again
-  -- after its own watchdogFires bump, so that publish still does real work.
+  -- The retriable-rejection caller publishes before restoring, so without this
+  -- INFLUX_POINTS_BUFFERED reads zero through an outage while points pile up.
   self:_updateMetricVariables()
 end
 
 --- Flush a single measurement's buffer to InfluxDB.
 ---
---- At most one request outstanding per buffer under normal operation:
---- overlapping flushes fed the load that caused their own timeouts. Callers
---- wanting an immediate flush cancel the armed timer first. The only bypass is
---- the in-flight watchdog below, which reissues after a lost callback and fences
---- the stale request off with a generation stamp so the two never race.
+--- At most one request outstanding per buffer: overlapping flushes fed the load
+--- that caused their own timeouts. Callers wanting an immediate flush cancel the
+--- armed timer first.
 --- @param stateKey string
 function InfluxWriter:_flushMeasurement(stateKey)
   local state = self._measurements[stateKey]
@@ -521,10 +491,9 @@ function InfluxWriter:_flushMeasurement(stateKey)
   end
 
   if state.inFlight then
-    -- Watchdog: a flush clears inFlight in both promise handlers, so if it is
-    -- still set long after lastFlushTime the HTTP callback was lost and the
-    -- buffer would otherwise wedge until reload. Recover it and fall through to
-    -- reissue.
+    -- Both promise handlers clear inFlight, so still being set long after
+    -- lastFlushTime means the HTTP callback was lost and the buffer would wedge
+    -- until reload. Recover and fall through to reissue.
     local stalledFor = os.time() - (state.lastFlushTime or 0)
     local threshold = math.max(
       constants.INFLIGHT_WATCHDOG_MIN_SECS,
@@ -540,11 +509,9 @@ function InfluxWriter:_flushMeasurement(stateKey)
       stateKey,
       stalledFor
     )
-    -- Put the stuck batch back at the front so a genuinely lost request is a
-    -- dedup-able duplicate (InfluxDB dedups on measurement+tags+timestamp)
-    -- rather than a silent loss. Bump the generation so the lost request's
-    -- handlers, if they ever fire, no-op instead of clearing the reissue's
-    -- inFlight or restoring this batch a second time.
+    -- Restoring makes a genuinely lost request a duplicate InfluxDB dedups on
+    -- (measurement+tags+timestamp) rather than a silent loss. The epoch bump
+    -- no-ops the lost request's handlers if they ever fire.
     if state.inFlightBatch then
       self:_restoreBatch(state, state.inFlightBatch)
     end
@@ -555,11 +522,9 @@ function InfluxWriter:_flushMeasurement(stateKey)
     self:_updateMetricVariables()
   end
 
-  -- Build URL from current config
   local cfg = self._getConfig()
   if not cfg or not cfg.url or cfg.url == "" or not cfg.database or cfg.database == "" then
     log:warn("InfluxWriter: cannot flush '%s' — InfluxDB not configured", stateKey)
-    -- Re-arm so we retry later
     self:_armFlushTimer(stateKey, state)
     return
   end
@@ -572,14 +537,12 @@ function InfluxWriter:_flushMeasurement(stateKey)
     cfg.precision or constants.DEFAULT_PRECISION
   )
 
-  -- Take a snapshot of the buffer (up to MAX_BATCH_SIZE)
   local batchSize = math.min(#state.buffer, constants.MAX_BATCH_SIZE)
   local batch = {}
   for i = 1, batchSize do
     batch[i] = state.buffer[i]
   end
 
-  -- Remove flushed entries
   local remaining = {}
   for i = batchSize + 1, #state.buffer do
     remaining[#remaining + 1] = state.buffer[i]
@@ -590,8 +553,8 @@ function InfluxWriter:_flushMeasurement(stateKey)
   state.lastFlushTime = os.time()
   state.inFlight = true
   state.inFlightBatch = batch
-  -- Snapshot the generation so a watchdog reissue (which bumps it) fences this
-  -- request's handlers off from the reissued one's state.
+  -- Snapshot the generation so a watchdog reissue fences this request's handlers
+  -- off from the reissued one's state.
   local epoch = state.epoch
 
   log:info("InfluxWriter: flushing %d points for '%s' (%d remaining)", batchSize, stateKey, #state.buffer)
@@ -633,9 +596,8 @@ function InfluxWriter:_flushMeasurement(stateKey)
       if err.retriable then
         self:_restoreBatch(state, batch)
 
-        -- Schedule retry on the backoff ladder. An explicit Retry-After wins the
-        -- delay, but the index still advances so a server sending short
-        -- Retry-After values cannot pin us at the bottom rung.
+        -- An explicit Retry-After wins the delay, but the index still advances
+        -- so a server sending short values cannot pin us at the bottom rung.
         local idx = math.min(state.retryIndex or 1, #constants.RETRY_INTERVALS)
         local delaySecs = err.retryAfter or constants.RETRY_INTERVALS[idx]
         state.retryIndex = math.min(idx + 1, #constants.RETRY_INTERVALS)
@@ -650,7 +612,6 @@ function InfluxWriter:_flushMeasurement(stateKey)
           self:_flushMeasurement(stateKey)
         end)
       else
-        -- Permanent error — drop the batch, log it
         log:error(
           "InfluxWriter: dropping %d points for '%s' (permanent error: %s)",
           batchSize,
@@ -671,7 +632,7 @@ end
 function InfluxWriter:forceFlushAll()
   log:info("InfluxWriter: force-flushing all measurements")
   for name, state in pairs(self._measurements) do
-    -- Cancel existing timer so we don't double-flush
+    -- Cancel the armed timer so the flush below is not doubled.
     if state.timerName then
       CancelTimer(state.timerName)
       state.timerName = nil
@@ -702,10 +663,9 @@ end
 function InfluxWriter:shutdown()
   log:info("InfluxWriter: shutting down, flushing all buffers")
 
-  -- Set before cancelling timers and flushing: both flush paths can re-arm
-  -- (the in-flight branch, and the success handler when a batch was capped),
-  -- and the success handler fires asynchronously after this returns. The flag
-  -- makes ordering irrelevant -- no timer arms once teardown has begun.
+  -- Set before cancelling timers and flushing: both flush paths can re-arm, and
+  -- the success handler fires asynchronously after this returns, so the flag is
+  -- what makes ordering irrelevant.
   self._shuttingDown = true
 
   for name, state in pairs(self._measurements) do
@@ -715,7 +675,6 @@ function InfluxWriter:shutdown()
     end
   end
 
-  -- Best-effort flush of all buffers
   self:forceFlushAll()
 end
 
@@ -754,7 +713,6 @@ function InfluxWriter:removeReading(measurementName, dedupScope)
   end
 end
 
---- Return current metrics snapshot.
 --- @return table metrics
 function InfluxWriter:getMetrics()
   local m = self._metrics
@@ -766,9 +724,5 @@ function InfluxWriter:getMetrics()
     lastWriteTimestamp = m.lastWriteTimestamp,
   }
 end
-
----------------------------------------------------------------------------
--- Module exports
----------------------------------------------------------------------------
 
 return InfluxWriter
