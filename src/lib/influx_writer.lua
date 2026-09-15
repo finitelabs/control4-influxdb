@@ -5,6 +5,8 @@ local constants = require("constants")
 local Deferred = require("deferred")
 local values = require("lib.values")
 
+require("lib.utils")
+
 require("drivers-common-public.global.timer")
 
 ---------------------------------------------------------------------------
@@ -82,13 +84,18 @@ end
 --- @return string|nil formatted, string|nil err
 local function formatFieldValue(value, valueType)
   if valueType == constants.VALUE_TYPES.INTEGER then
-    local n = tonumber(value)
+    -- tofinite, not tonumber: math.floor(nan) formats as "0i" and math.floor(inf)
+    -- as int64-max, either of which InfluxDB accepts and stores as a plausible
+    -- wrong number. Refuse instead.
+    local n = tofinite(value)
     if n == nil then
       return nil, string.format("cannot coerce '%s' to integer", tostring(value))
     end
     return string.format("%di", math.floor(n))
   elseif valueType == constants.VALUE_TYPES.FLOAT then
-    local n = tonumber(value)
+    -- tofinite, not tonumber: "%.15g" of nan/inf emits the literals nan/inf,
+    -- which have no line-protocol representation and 400-reject the whole batch.
+    local n = tofinite(value)
     if n == nil then
       return nil, string.format("cannot coerce '%s' to float", tostring(value))
     end
@@ -112,6 +119,10 @@ local function formatFieldValue(value, valueType)
         return "false"
       end
     elseif t == "number" then
+      -- NaN compares unequal to 0, so a bare `value ~= 0` renders it as "true".
+      if tofinite(value) == nil then
+        return nil, string.format("cannot coerce '%s' to boolean", tostring(value))
+      end
       return (value ~= 0) and "true" or "false"
     end
     return nil, string.format("cannot coerce '%s' to boolean", tostring(value))

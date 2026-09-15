@@ -9,6 +9,8 @@ local constants = require("constants")
 local transform = require("lib.transform")
 local InfluxWriter = require("lib.influx_writer")
 
+require("lib.utils")
+
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.timer")
 
@@ -224,7 +226,21 @@ function SubscriptionEngine:_enqueueReadingPoint(measName, readingLabel, timesta
 
     -- Place into fields or tags based on which def list it belongs to
     if fieldDefSet[mappingName] then
-      if rawValue ~= nil then
+      if rawValue ~= nil and tonumber(rawValue) ~= nil and tofinite(rawValue) == nil then
+        -- A value that parses as a number but is non-finite (nan/inf, or an
+        -- overflow literal like 1e999) has no line-protocol representation. Left
+        -- in, an integer field stores a plausible wrong number and a float field
+        -- 400-rejects the whole batch, discarding every good sibling reading.
+        -- Drop just this field so the rest of the batch still flushes. A genuine
+        -- non-numeric string (e.g. "warm") has tonumber == nil and is kept.
+        log:warn(
+          "enqueueReadingPoint(%s::%s): dropping non-finite value for field '%s' (%s)",
+          measName,
+          readingLabel,
+          mappingName,
+          tostring(rawValue)
+        )
+      elseif rawValue ~= nil then
         -- Inference is per value, so 45.1 and 57 would type one column twice
         -- and InfluxDB rejects the batch. The schema's pin keeps them agreeing.
         local pinned = meas.fieldTypes and meas.fieldTypes[mappingName]

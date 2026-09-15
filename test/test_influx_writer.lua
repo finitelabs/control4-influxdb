@@ -90,12 +90,51 @@ case("inferValueType and formatFieldValue agree on what a value becomes", functi
     { "-4.3", "integer", "-5i" },
     { "true", nil, "true" },
     { "Master Bathroom", nil, '"Master Bathroom"' },
+    -- Non-finite strings. tonumber parses all of these (strtod under luajit and
+    -- the controller both), so before the fix the inferred/float path emitted
+    -- "nan"/"inf" and the integer pin emitted "0i"/int64-max. The pair must now
+    -- refuse (nil) for every type, by inference and by pin, so nothing bogus is
+    -- ever serialized. A genuine word ("warm") still types as a string.
+    { "nan", nil, nil },
+    { "nan", "integer", nil },
+    { "nan", "float", nil },
+    { "inf", nil, nil },
+    { "inf", "integer", nil },
+    { "inf", "float", nil },
+    { "-inf", nil, nil },
+    { "-inf", "integer", nil },
+    { "1e999", nil, nil },
+    { "1e999", "integer", nil },
+    { "warm", nil, '"warm"' },
   }
   for _, c in ipairs(cases) do
     local raw, pin, want = c[1], c[2], c[3]
     local vt = pin or InfluxWriter.inferValueType(raw)
     T.eq(string.format("%q as %s", raw, tostring(pin or "inferred")), InfluxWriter.formatFieldValue(raw, vt), want)
   end
+end)
+
+T.section("formatFieldValue refuses a non-finite number by any type")
+
+-- The invariant table above feeds strings, which is what a Control4 variable
+-- holds. These feed actual non-finite numbers, the shape a transform can mint,
+-- so the refusal is exercised deterministically regardless of how a given Lua
+-- parses "nan"/"inf". The controls confirm finite numbers still format.
+local NAN = 0 / 0
+local INF = math.huge
+case("a non-finite number cannot be stored as any numeric or boolean field", function()
+  for _, pair in ipairs({ { "a NaN", NAN }, { "positive infinity", INF }, { "negative infinity", -INF } }) do
+    local label, n = pair[1], pair[2]
+    for _, vt in ipairs({ "integer", "float", "boolean" }) do
+      T.eq(string.format("%s as %s is refused", label, vt), InfluxWriter.formatFieldValue(n, vt), nil)
+    end
+  end
+  -- Controls in both directions: finite numbers still format for every branch,
+  -- so the guard rejects only the non-finite, not the whole numeric path.
+  T.eq("a finite integer still formats", InfluxWriter.formatFieldValue(42, "integer"), "42i")
+  T.eq("a finite float still formats", InfluxWriter.formatFieldValue(1.5, "float"), "1.5")
+  T.eq("zero is still a false boolean", InfluxWriter.formatFieldValue(0, "boolean"), "false")
+  T.eq("a nonzero number is still a true boolean", InfluxWriter.formatFieldValue(1, "boolean"), "true")
 end)
 
 case("a value that cannot coerce to the pinned type reports an error", function()

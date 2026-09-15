@@ -166,6 +166,15 @@ function Transform.eval(expression, rawValue)
     return rawValue, msg
   end
 
+  -- Arithmetic over finite input can still mint a non-finite (value/0 -> inf,
+  -- math.log(0) -> -inf). Treat that like any other transform failure and fall
+  -- back to the raw value rather than letting it reach the write path.
+  if type(result) == "number" and tofinite(result) == nil then
+    local msg = "non-finite result"
+    log:warn("Transform %s for '%s' (value=%s)", msg, expression, tostring(rawValue))
+    return rawValue, msg
+  end
+
   return result
 end
 
