@@ -72,6 +72,25 @@ local function getDriverIds()
   return ids
 end
 
+--- Read the project name from the location tree.
+--- There is no C4:GetProjectName. NO_ROOT_TAGS drops the wrapper so the
+--- project item leads, making the first name the project's own.
+--- Must not be called from OnDriverInit: GetProjectItems is unavailable there.
+--- @return string? projectName nil when the name cannot be resolved
+local function getProjectName()
+  -- pcall and the type check keep a nil or an unexpected return from erroring
+  -- out of driver init; the property simply stays as the installer left it.
+  local ok, xml = pcall(C4.GetProjectItems, C4, "LOCATIONS", "LIMIT_DEVICE_DATA", "NO_ROOT_TAGS")
+  if not ok or type(xml) ~= "string" then
+    return nil
+  end
+  local name = xml:match("<name>(.-)</name>")
+  if IsEmpty(name) then
+    return nil
+  end
+  return (name:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&amp;", "&"))
+end
+
 --- Sync a property value to all other instances of this driver.
 --- Only syncs if the other instance has a different value (avoids infinite loops).
 --- @param propertyName string
@@ -807,6 +826,235 @@ function EC.ClearOfflineBuffer()
   end
 end
 
+---------------------------------------------------------------------------
+-- Auto Configure (one click measurement discovery)
+---------------------------------------------------------------------------
+-- Builds tv_usage / light_usage / security_status from LIVE device discovery.
+-- Only the controller can resolve a variable NAME to the numeric variable id
+-- that subscriptions require (varId = "deviceId:variableId"), so this must run
+-- on the controller rather than from any offline tool.
+
+-- Variable names confirmed against live Control4 OS 3.x systems.
+local AUTO = {
+  SECURITY = { "PARTITION_STATE" },
+  LIGHT_ON = { "LIGHT_STATE" },
+  LIGHT_LEVEL = { "BRIGHTNESS PERCENT", "BRIGHTNESS TARGET PERCENT", "PRESET_LEVEL" },
+  TV_POWER = { "POWER_STATE" },
+  TV_INPUT = { "CURRENT_INPUT" },
+}
+-- on/off robust to number (level>0), "On"/"Off", or "true"/"false".
+local AUTO_T_ONOFF =
+  '(function() local n = tonumber(value); if n then return n > 0 and 1 or 0 end; local v = tostring(value):lower(); return (v == "on" or v == "true") and 1 or 0 end)()'
+local AUTO_T_LEVEL = "tonumber(value) or 0"
+local AUTO_T_SOURCE = "tostring(value)"
+-- Guaranteed numeric: DISARM* -> 0, *AWAY -> 2, any other ARM* -> 1, else 0.
+-- (map() returns the raw value on no-match, so do not rely on "map(...) or 0".)
+local AUTO_T_ARMED =
+  'tostring(value):upper():find("DISARM") and 0 or (tostring(value):upper():find("AWAY") and 2 or (tostring(value):upper():find("ARM") and 1 or 0))'
+
+-- Service intelligence: fault catalog (Phase 1). One device_faults reading per
+-- (device, variable) found. severity/text/alert flag are static per code and live
+-- here / in the report engine, NOT in the time series. _BOOL variants preferred.
+local FAULT_CATALOG = {
+  { var = "OVER_TEMPERATURE", subsystem = "lighting", code = "load_overtemp", rule = "bool" },
+  { var = "SHORT_CIRCUIT_DETECTED", subsystem = "lighting", code = "load_short", rule = "bool" },
+  { var = "OVER_RATED_WATTAGE", subsystem = "lighting", code = "load_overwatt", rule = "bool" },
+  { var = "UPS_POWER_LOST_BOOL", subsystem = "power", code = "ups_on_battery", rule = "bool" },
+  { var = "TROUBLE_TYPE", subsystem = "security", code = "sec_trouble", rule = "nonempty" },
+  { var = "LAST_ARM_FAILED", subsystem = "security", code = "sec_arm_failed", rule = "nonempty" },
+}
+local FAULT_T_BOOL =
+  '(function() local n = tonumber(value); if n then return n > 0 and 1 or 0 end; local v = tostring(value):lower(); return (v == "true" or v == "yes" or v == "on") and 1 or 0 end)()'
+local FAULT_T_NONEMPTY =
+  '(function() local v = tostring(value):lower(); return (v ~= "" and v ~= "none" and v ~= "0" and v ~= "false") and 1 or 0 end)()'
+
+--- Build name(upper) -> numeric variable id for one device.
+--- @param devId number
+--- @return table<string, number>
+local function autoVarIndex(devId)
+  local index = {}
+  local ok, vars = pcall(C4.GetDeviceVariables, C4, devId)
+  if ok and type(vars) == "table" then
+    for vid, info in pairs(vars) do
+      if info and info.name then
+        index[string.upper(info.name)] = tonumber(vid)
+      end
+    end
+  end
+  return index
+end
+
+--- First matching variable id from a list of candidate names.
+local function autoFirst(index, names)
+  for _, n in ipairs(names) do
+    local vid = index[string.upper(n)]
+    if vid then
+      return vid
+    end
+  end
+  return nil
+end
+
+local function autoCount(t)
+  local n = 0
+  for _ in pairs(t) do
+    n = n + 1
+  end
+  return n
+end
+
+--- Discover devices and build the full measurements config by convention.
+--- @return table config
+local function buildAutoConfig()
+  local site = Properties["Site"]
+  if IsEmpty(site) then
+    site = getProjectName() or "home"
+  end
+
+  local lights, tvs, sec, faults = {}, {}, {}, {}
+  local devices = C4:GetDevices() or {}
+  for id, dev in pairs(devices) do
+    local devId = tonumber(id)
+    if devId then
+      local name = dev.deviceName or ("Device " .. tostring(devId))
+      local room = dev.roomName or ""
+      local label = name .. " [" .. tostring(devId) .. "]"
+      local idx = autoVarIndex(devId)
+      local vnames = {}
+      for vn in pairs(idx) do
+        vnames[#vnames + 1] = vn
+      end
+      log:debug("AutoConfigure scan dev %d '%s' [%s] vars: %s", devId, name, room, table.concat(vnames, ", "))
+
+      local secVid = autoFirst(idx, AUTO.SECURITY)
+      local lightVid = autoFirst(idx, AUTO.LIGHT_ON)
+      local powerVid = autoFirst(idx, AUTO.TV_POWER)
+      local inputVid = autoFirst(idx, AUTO.TV_INPUT)
+
+      if secVid then
+        sec[label] = {
+          enabled = true,
+          mappings = {
+            armed = { source = "variable", varId = devId .. ":" .. secVid, transform = AUTO_T_ARMED },
+            panel_name = { source = "literal", literal = name },
+            site = { source = "literal", literal = site },
+          },
+        }
+        log:debug("AutoConfigure: security '%s' (dev %d)", name, devId)
+      elseif lightVid then
+        local mappings = {
+          is_on = { source = "variable", varId = devId .. ":" .. lightVid, transform = AUTO_T_ONOFF },
+          device_name = { source = "literal", literal = name },
+          room_name = { source = "literal", literal = room },
+          site = { source = "literal", literal = site },
+        }
+        local lvlVid = autoFirst(idx, AUTO.LIGHT_LEVEL)
+        if lvlVid then
+          mappings.level = { source = "variable", varId = devId .. ":" .. lvlVid, transform = AUTO_T_LEVEL }
+        end
+        lights[label] = { enabled = true, mappings = mappings }
+        log:debug("AutoConfigure: light '%s' (dev %d)", name, devId)
+      elseif powerVid and inputVid then
+        tvs[label] = {
+          enabled = true,
+          mappings = {
+            power_on = { source = "variable", varId = devId .. ":" .. powerVid, transform = AUTO_T_ONOFF },
+            source_name = { source = "variable", varId = devId .. ":" .. inputVid, transform = AUTO_T_SOURCE },
+            room_name = { source = "literal", literal = (not IsEmpty(room)) and room or name },
+            display_name = { source = "literal", literal = name },
+            site = { source = "literal", literal = site },
+          },
+        }
+        log:debug("AutoConfigure: tv '%s' (dev %d)", name, devId)
+      end
+      -- Orthogonal fault pass: a device can be a usage device AND a fault source.
+      for _, f in ipairs(FAULT_CATALOG) do
+        local fvid = idx[string.upper(f.var)]
+        if fvid then
+          local xf = (f.rule == "nonempty") and FAULT_T_NONEMPTY or FAULT_T_BOOL
+          faults[label .. "::" .. f.code] = {
+            enabled = true,
+            mappings = {
+              fault_active = { source = "variable", varId = devId .. ":" .. fvid, transform = xf },
+              fault_code = { source = "literal", literal = f.code },
+              subsystem = { source = "literal", literal = f.subsystem },
+              device_name = { source = "literal", literal = name },
+              room_name = { source = "literal", literal = room },
+              site = { source = "literal", literal = site },
+            },
+          }
+          log:debug("AutoConfigure: fault '%s' on '%s' (dev %d)", f.code, name, devId)
+        end
+      end
+    end
+  end
+
+  log:info(
+    "AutoConfigure discovered: %d lights, %d rooms/tvs, %d security, %d faults (site=%s)",
+    autoCount(lights),
+    autoCount(tvs),
+    autoCount(sec),
+    autoCount(faults),
+    site
+  )
+
+  return {
+    light_usage = {
+      fieldDefs = { "is_on", "level" },
+      fieldTypes = { is_on = "integer", level = "integer" },
+      tagDefs = { "site", "device_name", "room_name" },
+      interval = "5m",
+      enabled = true,
+      dedup = true,
+      readings = lights,
+    },
+    tv_usage = {
+      fieldDefs = { "power_on" },
+      fieldTypes = { power_on = "integer" },
+      tagDefs = { "site", "room_name", "display_name", "source_name" },
+      interval = "1m",
+      enabled = true,
+      dedup = true,
+      readings = tvs,
+    },
+    security_status = {
+      fieldDefs = { "armed" },
+      fieldTypes = { armed = "integer" },
+      tagDefs = { "site", "panel_name" },
+      interval = "5m",
+      enabled = true,
+      dedup = false,
+      readings = sec,
+    },
+    device_faults = {
+      fieldDefs = { "fault_active" },
+      fieldTypes = { fault_active = "integer" },
+      tagDefs = { "site", "device_name", "room_name", "subsystem", "fault_code" },
+      interval = "5m",
+      enabled = true,
+      dedup = false,
+      readings = faults,
+    },
+  }
+end
+
+--- Auto Configure Measurements action. One click: discover devices live and
+--- apply tv_usage / light_usage / security_status. Dedup is off so the interval
+--- acts as a heartbeat (on time = sample count * interval).
+function EC.Auto_Configure()
+  log:info("Action: Auto Configure Measurements")
+  local config = buildAutoConfig()
+  local applied = 0
+  for measName, measConfig in pairs(config) do
+    measManager:applyMeasurementConfig(measName, measConfig, subEngine, influxWriter)
+    applied = applied + 1
+  end
+  if subEngine then
+    subEngine:restartIntervalTimers()
+  end
+  log:print("Auto Configure applied %d measurements", applied)
+end
+
 --#ifndef DRIVERCENTRAL
 --- Update the driver from the GitHub repository.
 --- @param forceUpdate? boolean Force the update even if the driver is up to date.
@@ -849,6 +1097,16 @@ function OnDriverLateInit()
 
   -- Set driver version
   UpdateProperty("Driver Version", C4:GetDeviceData(C4:GetDeviceID(), "version"))
+
+  -- Seed the site tag from the project name so a fresh install is labelled
+  -- without the installer inventing an id. Only ever fills a blank property.
+  if IsEmpty(Properties["Site"]) then
+    local projectName = getProjectName()
+    if projectName ~= nil then
+      log:info("Defaulting Site to the project name '%s'", projectName)
+      UpdateProperty("Site", projectName)
+    end
+  end
 
   log:info("InfluxDB Data Logger initializing")
 

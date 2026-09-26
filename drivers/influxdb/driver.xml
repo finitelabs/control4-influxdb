@@ -159,6 +159,12 @@
         <description>InfluxDB database name</description>
       </property>
       <property>
+        <name>Site</name>
+        <type>STRING</type>
+        <default/>
+        <description>Identifies this system in the database. Written as a site tag on every measurement so one database can hold several systems and still separate them. Defaults to the project name.</description>
+      </property>
+      <property>
         <name>Write Precision</name>
         <type>LIST</type>
         <default>ms</default>
@@ -226,6 +232,10 @@
       <action>
         <name>Clear Offline Buffer</name>
         <command>ClearOfflineBuffer</command>
+      </action>
+      <action>
+        <name>Auto Configure Measurements</name>
+        <command>Auto_Configure</command>
       </action>
     </actions>
   </config>
