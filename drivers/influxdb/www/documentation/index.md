@@ -37,6 +37,7 @@ automatic offline buffering and retry.
 
 - [System Requirements](#system-requirements)
 - [Features](#features)
+- [Automatic Configuration](#automatic-configuration)
 - [Installer Setup](#installer-setup)
   <!-- #ifdef DRIVERCENTRAL -->
   - [DriverCentral Cloud Setup](#drivercentral-cloud-setup)
@@ -81,6 +82,30 @@ automatic offline buffering and retry.
 - Exponential-backoff retry when the InfluxDB server is unreachable
 - Extended outage notification event
 - Connection status events and conditionals for programming
+
+# <span style="color:#020A47">Automatic Configuration</span>
+
+Measurements can be configured by hand, or built for you from the project.
+
+**Auto Configure Measurements** (Actions tab) enumerates every device, reads its
+live variables, and creates a standard set of measurements: `tv_usage` (power
+and current source for displays), `light_usage` (on state and brightness for
+lighting loads), `security_status` (armed state for security partitions), and
+`device_faults` (known fault variables such as over temperature, short circuit,
+UPS on battery, security trouble, and arm failed). Set the connection properties
+first, then run the action. Re run it any time the project changes.
+
+Devices are matched on the variables they actually expose rather than on their
+driver name, so the results hold across manufacturers. Displays must expose both
+`POWER_STATE` and `CURRENT_INPUT`, which avoids matching recorders and streaming
+pseudo devices; lighting loads are keyed on `LIGHT_STATE`; security partitions
+are keyed on `PARTITION_STATE`, whose string values are mapped to integers.
+
+Usage measurements are created with dedup on, so a row is written when a value
+changes. Security and fault measurements are created with dedup off, so the
+interval acts as a heartbeat and current state stays fresh for alerting. Field
+types are pinned to integers so a stray string cannot fix a column to the wrong
+type on first write.
 
 # <span style="color:#020A47">Installer Setup</span>
 

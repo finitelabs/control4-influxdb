@@ -22,6 +22,8 @@ automatic offline buffering and retry.
 
 - [Features](#features)
 
+- [Automatic Configuration](#automatic-configuration)
+
 - [Installer Setup](#installer-setup)
 
   - [Driver Installation](#driver-installation)
@@ -63,6 +65,30 @@ automatic offline buffering and retry.
 - Exponential-backoff retry when the InfluxDB server is unreachable
 - Extended outage notification event
 - Connection status events and conditionals for programming
+
+# <span style="color:#020A47">Automatic Configuration</span>
+
+Measurements can be configured by hand, or built for you from the project.
+
+**Auto Configure Measurements** (Actions tab) enumerates every device, reads its
+live variables, and creates a standard set of measurements: `tv_usage` (power
+and current source for displays), `light_usage` (on state and brightness for
+lighting loads), `security_status` (armed state for security partitions), and
+`device_faults` (known fault variables such as over temperature, short circuit,
+UPS on battery, security trouble, and arm failed). Set the connection properties
+first, then run the action. Re run it any time the project changes.
+
+Devices are matched on the variables they actually expose rather than on their
+driver name, so the results hold across manufacturers. Displays must expose both
+`POWER_STATE` and `CURRENT_INPUT`, which avoids matching recorders and streaming
+pseudo devices; lighting loads are keyed on `LIGHT_STATE`; security partitions
+are keyed on `PARTITION_STATE`, whose string values are mapped to integers.
+
+Usage measurements are created with dedup on, so a row is written when a value
+changes. Security and fault measurements are created with dedup off, so the
+interval acts as a heartbeat and current state stays fresh for alerting. Field
+types are pinned to integers so a stray string cannot fix a column to the wrong
+type on first write.
 
 # <span style="color:#020A47">Installer Setup</span>
 
@@ -377,6 +403,34 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 ### Changed
 
 - The web UI fills the available width and adapts to narrow panes.
+
+## v20260827 - 2026-08-26
+
+Community fork adding one click, convention based configuration and a service
+intelligence layer on top of the upstream InfluxDB Data Logger.
+
+### Added
+
+- **Auto Configure Measurements** action. One click discovers every device
+  (`C4:GetDevices` + `C4:GetDeviceVariables`), resolves each variable name to
+  its numeric variable id, and creates `tv_usage`, `light_usage`,
+  `security_status`, and `device_faults` measurements by convention. No manual
+  per device binding.
+- **Site** property. A literal tag written on every measurement (the home id) so
+  a single database cleanly separates multiple homes.
+- **device_faults** measurement. An orthogonal fault scan maps known Control4
+  fault variables (`OVER_TEMPERATURE`, `SHORT_CIRCUIT_DETECTED`, `TROUBLE_TYPE`,
+  `LAST_ARM_FAILED`, `UPS_POWER_LOST_BOOL`, etc.) to a `fault_active` model for
+  proactive service alerting. Static severity and text live in the catalog, not
+  the time series.
+
+### Changed
+
+- Auto Configure sets the high volume usage measurements (`tv_usage`,
+  `light_usage`) to **Dedup ON** (write on change) so busy homes do not
+  accumulate excess Parquet files on InfluxDB 3 Core, which has no compactor.
+  `device_faults` stays Dedup OFF (heartbeat) so current fault state is always
+  fresh for alerting. Compute usage duration from on/off transitions.
 
 ## v20260331 - 2026-03-31
 
