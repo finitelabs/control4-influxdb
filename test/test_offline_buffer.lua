@@ -60,6 +60,7 @@ local persist_mod = require("lib.persist")
 --- still resolve in the next. Clear through the public API: the rendered shim
 --- keeps its backing store module-local.
 local function resetPersist()
+  ShimPersistLand()
   for k in pairs(persist_mod._persist) do
     C4:PersistDeleteValue(k)
   end
