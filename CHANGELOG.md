@@ -32,6 +32,15 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a buffer flush being re-armed while the driver was shutting down, so a
   timer could fire into a driver that was already being removed or reloaded.
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+### Changed
+
+- Changed Automatic Updates to one setting for every InfluxDB driver in the
+  project: changing it on any of them now changes it on all of them.
+
+<!-- #endif -->
+
 ## v20260816 - 2026-08-16
 
 ### Added

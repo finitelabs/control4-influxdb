@@ -265,7 +265,8 @@ Displays the DriverCentral cloud license status.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
-Enables or disables automatic driver updates via DriverCentral.
+Enables or disables automatic driver updates via DriverCentral. Changing it on
+any InfluxDB driver in the project changes it on all of them.
 
 <!-- #else -->
 
