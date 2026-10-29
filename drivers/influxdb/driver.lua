@@ -4,9 +4,6 @@ DC_X = nil
 DC_FILENAME = "influxdb.c4z"
 --#else
 DRIVER_GITHUB_REPO = "finitelabs/control4-influxdb"
-DRIVER_FILENAMES = {
-  "influxdb.c4z",
-}
 --#endif
 
 require("lib.utils")
@@ -15,6 +12,7 @@ require("drivers-common-public.global.lib")
 require("drivers-common-public.global.timer")
 
 local log = require("lib.logging")
+local updateSettings = require("lib.update-settings")
 --#ifndef DRIVERCENTRAL
 local githubUpdater = require("lib.github-updater")
 --#endif
@@ -70,21 +68,6 @@ local function getDriverIds()
   end
   table.sort(ids)
   return ids
-end
-
---- Sync a property value to all other instances of this driver.
---- Only syncs if the other instance has a different value (avoids infinite loops).
---- @param propertyName string
---- @param propertyValue string
-local function syncPropertyToOtherInstances(propertyName, propertyValue)
-  local ids = getDriverIds()
-  local myId = C4:GetDeviceID()
-  for _, deviceId in ipairs(ids) do
-    if deviceId ~= myId then
-      log:info("Syncing property '%s' = '%s' to device %d", propertyName, propertyValue, deviceId)
-      SetDeviceProperties(deviceId, { [propertyName] = propertyValue }, true)
-    end
-  end
 end
 --#endif
 
@@ -178,12 +161,10 @@ end
 --- @param propertyValue string
 function OPC.Automatic_Updates(propertyValue)
   log:trace("OPC.Automatic_Updates('%s')", propertyValue)
-  --#ifndef DRIVERCENTRAL
   if not gInitialized then
     return
   end
-  syncPropertyToOtherInstances("Automatic Updates", propertyValue)
-  --#endif
+  updateSettings:share("Automatic Updates", propertyValue)
 end
 
 --#ifndef DRIVERCENTRAL
@@ -193,7 +174,7 @@ function OPC.Update_Channel(propertyValue)
   if not gInitialized then
     return
   end
-  syncPropertyToOtherInstances("Update Channel", propertyValue)
+  updateSettings:share("Update Channel", propertyValue)
 end
 --#endif
 
@@ -807,13 +788,24 @@ function EC.ClearOfflineBuffer()
   end
 end
 
+--- An update setting changed on another item.
+function EC.SET_UPDATE_SETTING(params)
+  log:trace("EC.SET_UPDATE_SETTING(%s)", params)
+  updateSettings:take(params)
+end
+
 --#ifndef DRIVERCENTRAL
 --- Update the driver from the GitHub repository.
 --- @param forceUpdate? boolean Force the update even if the driver is up to date.
 function UpdateDrivers(forceUpdate)
   log:trace("UpdateDrivers(%s)", forceUpdate)
   githubUpdater
-    :updateAll(DRIVER_GITHUB_REPO, DRIVER_FILENAMES, Properties["Update Channel"] == "Prerelease", forceUpdate)
+    :updateAll(
+      DRIVER_GITHUB_REPO,
+      require("lib.driver-filenames"),
+      Properties["Update Channel"] == "Prerelease",
+      forceUpdate
+    )
     :next(function(updatedDrivers)
       if not IsEmpty(updatedDrivers) then
         log:info("Updated driver(s): %s", table.concat(updatedDrivers, ","))
