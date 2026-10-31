@@ -20,6 +20,16 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+### Added
+
+- Added a `Support Code` property to the InfluxDB Data Logger driver. A code
+  from Finite Labs support opens the driver's Lua tab in Composer for an hour;
+  leave it blank otherwise.
+
+<!-- #endif -->
+
 ### Fixed
 
 - Fixed a failing write retrying every 5 seconds indefinitely against a down or
