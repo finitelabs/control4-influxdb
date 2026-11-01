@@ -946,6 +946,10 @@ function OnDriverLateInit()
   log:info("InfluxDB Data Logger initialized")
 end
 
+--#ifdef DRIVERCENTRAL
+OnDriverLateInit = diagnostics:wrapLateInit(OnDriverLateInit)
+--#endif
+
 function OnDriverDestroyed()
   log:info("InfluxDB Data Logger shutting down")
 
