@@ -30,6 +30,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 <!-- #endif -->
 
+<!-- #ifdef DRIVERCENTRAL -->
+
+- Added a `Cloud Monitoring` property, Enabled by default, and a
+  `Diagnostics Snapshot` action to the driver. Cloud Monitoring sends Finite
+  Labs an hourly report of the driver's memory use and a report of each error it
+  hits; the documentation says what they hold.
+  <!-- #endif -->
+
 ### Fixed
 
 - Fixed a failing write retrying every 5 seconds indefinitely against a down or
