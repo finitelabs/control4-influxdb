@@ -75,7 +75,6 @@ automatic offline buffering and retry.
    all `.c4z` files.
 1. Use the "Search" tab to find the "Influxdb" driver and add it to your
    project.
-   <br><img alt="Search Drivers" src="./images/search-drivers.png" width="300"/>
 1. Configure the [InfluxDB Settings](#influxdb-settings) with the connection
    information for your InfluxDB instance. The
    [`Driver Status`](#driver-status-read-only) will display `Connected`

@@ -111,7 +111,6 @@ for setting it up.
    all `.c4z` files.
 1. Use the "Search" tab to find the "Influxdb" driver and add it to your
    project.
-   <br><img alt="Search Drivers" src="./images/search-drivers.png" width="300"/>
 1. Select the newly added driver in the "System Design" tab. You will notice
    that the `Cloud Status` reflects the license state. If you have purchased a
    license it will show `License Activated`, otherwise `Trial Running` and
@@ -136,7 +135,6 @@ for setting it up.
    all `.c4z` files.
 1. Use the "Search" tab to find the "Influxdb" driver and add it to your
    project.
-   <br><img alt="Search Drivers" src="./images/search-drivers.png" width="300"/>
 1. Configure the [InfluxDB Settings](#influxdb-settings) with the connection
    information for your InfluxDB instance. The
    [`Driver Status`](#driver-status-read-only) will display `Connected`
