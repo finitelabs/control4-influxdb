@@ -19,12 +19,8 @@ ______________________________________________________________________
 
 # <span style="color:#020A47">Overview</span>
 
-<!-- #ifndef DRIVERCENTRAL -->
-
 > DISCLAIMER: This software is neither affiliated with nor endorsed by either
 > Control4 or InfluxData.
-
-<!-- #endif -->
 
 The InfluxDB Data Logger driver allows you to log Control4 variable changes to
 an InfluxDB time-series database. Configure measurements, bind Control4
