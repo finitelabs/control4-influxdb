@@ -8,7 +8,7 @@ Marketing images for the InfluxDB listing (the listing's DriverCentral product, 
 | `banners/launch-post-2400x1200` | 2400x1200 | Launch posts (c4forums, Reddit, Discord) |
 | `banners/facts-strip-2400x200` | 2400x200 | The first image in the listing's description: four facts in a row |
 
-`assets/` holds what the pages share: the Finite Labs logo, and InfluxDB's Cubo in white as `brand-mark.png`, exported from this repo's `resources/Driver Icons.sketch` (the art its icons use). InfluxData's logos are on https://influxdata.github.io/branding/logo/brands/; its trademark guidelines (https://www.influxdata.com/legal/guidelines-for-using-influxdata-trademarks/) allow naming the product but ask for a written logo license, and the Cubo needs special permission.
+`assets/` holds what the pages share: the Finite Labs logo, and InfluxDB's Cubo in white as `brand-mark.png`, exported from this repo's `resources/Driver Icons.sketch` (the art its icons use). InfluxData's logos are on https://influxdata.github.io/branding/logo/brands/; its trademark guidelines (https://www.influxdata.com/legal/guidelines-for-using-influxdata-trademarks/) allow naming the product but ask for a written logo license, and the Cubo needs special permission. We haven't obtained that license; the mark is used only to name the database the driver writes to, with the ® and the guidelines' footnote on every page that shows it.
 
 ## Rendering
 
