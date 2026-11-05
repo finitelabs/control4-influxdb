@@ -52,6 +52,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 - Changed Automatic Updates to one setting for every InfluxDB driver in the
   project: changing it on any of them now changes it on all of them.
+- Changed the driver to stop without an active DriverCentral license or trial.
+  Five minutes after the license lapses it collects, writes and tests nothing,
+  and Driver Status reads `No active license`; buffered points wait. A license
+  starts it again at once.
 
 <!-- #endif -->
 

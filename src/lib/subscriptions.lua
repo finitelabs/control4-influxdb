@@ -126,6 +126,7 @@ end
 --- @field _getMeasurements fun(): table<string, MeasurementConfig>
 --- @field _getInfluxWriter fun(): InfluxWriter|nil
 --- @field _getWriteInterval fun(): number
+--- @field _isRunning fun(): boolean
 local SubscriptionEngine = {}
 SubscriptionEngine.__index = SubscriptionEngine
 
@@ -134,6 +135,7 @@ SubscriptionEngine.__index = SubscriptionEngine
 ---   - getMeasurements: fun(): table<string, MeasurementConfig>
 ---   - getInfluxWriter: fun(): InfluxWriter|nil
 ---   - getWriteInterval: fun(): number
+---   - isRunning: fun(): boolean, false while nothing may be collected or written
 --- @return SubscriptionEngine
 function SubscriptionEngine:new(opts)
   log:trace("SubscriptionEngine:new(opts)")
@@ -152,6 +154,9 @@ function SubscriptionEngine:new(opts)
   instance._getWriteInterval = opts.getWriteInterval or function()
     return constants.DEFAULT_WRITE_INTERVAL
   end
+  instance._isRunning = opts.isRunning or function()
+    return true
+  end
   return instance
 end
 
@@ -167,6 +172,9 @@ end
 --- @param timestampMs number|nil Collection time; every reading in a tick shares one.
 function SubscriptionEngine:_enqueueReadingPoint(measName, readingLabel, timestampMs)
   log:trace("SubscriptionEngine:_enqueueReadingPoint('%s', '%s')", measName, readingLabel)
+  if not self._isRunning() then
+    return
+  end
   local measurements = self._getMeasurements()
   local meas = measurements[measName]
   if not meas or meas.enabled == false then
@@ -562,6 +570,9 @@ end
 --- One timer per distinct interval; each tick re-enqueues all readings at that interval.
 function SubscriptionEngine:_startIntervalTimers()
   self:_stopIntervalTimers()
+  if not self._isRunning() then
+    return
+  end
   local measurements = self._getMeasurements()
   -- Group readings by interval
   local byInterval = {} -- {[secs]: {{measName, readingLabel}, ...}}

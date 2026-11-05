@@ -1,8 +1,4 @@
---#ifdef DRIVERCENTRAL
-DC_PID = 0 -- TODO: Assign DriverCentral product ID
-DC_X = nil
-DC_FILENAME = "influxdb.c4z"
---#else
+--#ifndef DRIVERCENTRAL
 DRIVER_GITHUB_REPO = "finitelabs/control4-influxdb"
 --#endif
 
@@ -14,6 +10,7 @@ require("drivers-common-public.global.timer")
 local log = require("lib.logging")
 local updateSettings = require("lib.update-settings")
 --#ifdef DRIVERCENTRAL
+local drivercentral = require("lib.drivercentral")
 local supportCode = require("lib.support-code")
 local diagnostics = require("lib.diagnostics")
 --#endif
@@ -79,9 +76,29 @@ end
 -- Helpers
 ---------------------------------------------------------------------------
 
+--- Whether the license gate lets the driver collect and write. An OSS build has no gate.
+--- @return boolean
+local function running()
+  local ok = true
+  --#ifdef DRIVERCENTRAL
+  ok = drivercentral:licensed()
+  --#endif
+  return ok
+end
+
+--- Tests the InfluxDB connection, unless the license gate holds the driver stopped.
+local function checkConnection()
+  if running() then
+    influxClient:checkConnection()
+  end
+end
+
 --- Handle an offline-buffer state change (called from OfflineBuffer callbacks).
 --- @param state string One of "Connected", "Disconnected", "Reconnecting"
 local function onBufferStateChange(state)
+  if not running() then
+    return
+  end
   if state == OfflineBuffer.State.CONNECTED then
     influxClient:updateConnectionStatus(true)
     if offlineBuffer then
@@ -105,6 +122,9 @@ end
 --- Uses the Deferred-based InfluxWriter.postBatch() for consistent async patterns.
 --- @param points string[] Points to send (the full buffer contents).
 local function drainOfflineBuffer(points)
+  if not running() then
+    return
+  end
   if drainInFlight then
     log:debug("Drain already in flight, skipping")
     return
@@ -145,7 +165,9 @@ local function initInfluxWriter()
       }
     end,
     onConnected = function(connected)
-      influxClient:updateConnectionStatus(connected)
+      if running() then
+        influxClient:updateConnectionStatus(connected)
+      end
     end,
     onWriteError = function(errMsg)
       log:error("InfluxWriter error: %s", errMsg or "unknown")
@@ -226,7 +248,7 @@ function OPC.InfluxDB_URL(propertyValue)
   log:trace("OPC.InfluxDB_URL('%s')", propertyValue)
   influxClient:configure({ url = propertyValue or "" })
   if gInitialized then
-    influxClient:checkConnection()
+    checkConnection()
   end
 end
 
@@ -235,7 +257,7 @@ function OPC.API_Token(propertyValue)
   log:trace("OPC.API_Token(<redacted>)")
   influxClient:configure({ token = propertyValue or "" })
   if gInitialized then
-    influxClient:checkConnection()
+    checkConnection()
   end
 end
 
@@ -244,7 +266,7 @@ function OPC.Database(propertyValue)
   log:trace("OPC.Database('%s')", propertyValue)
   influxClient:configure({ database = propertyValue or "" })
   if gInitialized then
-    influxClient:checkConnection()
+    checkConnection()
   end
 end
 
@@ -846,8 +868,7 @@ end
 
 function OnDriverInit()
   --#ifdef DRIVERCENTRAL
-  require("cloud-client-byte")
-  C4:AllowExecute(false)
+  drivercentral:startClient()
   --#else
   C4:AllowExecute(true)
   --#endif
@@ -913,7 +934,28 @@ function OnDriverLateInit()
     getWriteInterval = function()
       return influxClient:getConfig().writeInterval
     end,
+    isRunning = running,
   })
+
+  --#ifdef DRIVERCENTRAL
+  -- Started before anything is collected or tested, so a build without a product sends nothing.
+  drivercentral:startGate(function(licensed)
+    if licensed then
+      log:info("License active; collecting and writing again")
+      subEngine:restartIntervalTimers()
+      checkConnection()
+      if offlineBuffer:size() > 0 then
+        offlineBuffer:triggerDrain()
+      end
+    else
+      log:warn("No active license; collecting and writing nothing")
+      subEngine:restartIntervalTimers()
+      -- Cancels the retry timer; buffered points wait for a license.
+      offlineBuffer:destroy()
+      UpdateProperty("Driver Status", drivercentral.UNLICENSED_STATUS)
+    end
+  end)
+  --#endif
 
   -- Re-subscribe to all variables from persisted measurement configs
   subEngine:resubscribeAll()
@@ -929,7 +971,7 @@ function OnDriverLateInit()
   gInitialized = true
 
   -- Auto-connect if configured
-  influxClient:checkConnection()
+  checkConnection()
 
   --#ifndef DRIVERCENTRAL
   -- Periodic update check (every 30 minutes, leader instance only)
