@@ -24,11 +24,12 @@ local function tick(n)
 end
 
 --- InfluxDB answering every request with `code`, or holding each answer until `release` when `code` is nil. Writes
---- go out through C4:urlPost and connection tests through lib.http's urlDo.
+--- go out through C4:urlPost and connection tests through lib.http's urlDo, to the same URL, so a write is recorded
+--- as WRITE to tell it from a test.
 local held = {}
 local function answer(code)
   function C4:urlPost(url, _, _, _, callback)
-    posts[#posts + 1] = "POST " .. tostring(url)
+    posts[#posts + 1] = "WRITE " .. tostring(url)
     if callback then
       callback(1, "", code or 204, {}, nil)
     end
@@ -56,6 +57,16 @@ local function release()
   end
 end
 
+--- Whether a write of points, not a connection test, went out after `mark`.
+local function wrote(mark)
+  for i = mark + 1, #posts do
+    if posts[i]:find("^WRITE ") then
+      return true
+    end
+  end
+  return false
+end
+
 T.section("A write InfluxDB keeps refusing goes out no more once the logger stops, and goes out when a license is back")
 do
   answer(503)
@@ -63,18 +74,18 @@ do
   OnWatchedVariableChanged(SENSOR, 1000, tostring(watts))
   local mark = #posts
   tick()
-  T.eq("licensed, the refused write goes out and is retried", common.wrote(posts, mark), true)
+  T.eq("licensed, the refused write goes out and is retried", wrote(mark), true)
   cloud.answer = { AC = 0, AS = "Invalid License" }
   tick(30)
   T.eq("the 30th read stops it", Properties["Driver Status"], "No active license")
   mark = #posts
   tick(20)
-  T.eq("stopped, the refused write is not retried", common.wrote(posts, mark), false)
+  T.eq("stopped, the refused write is not retried", wrote(mark), false)
   answer(204)
   mark = #posts
   cloud.answer = { AC = 1, AS = "License Activated" }
   cloud.say({ AC = 1, AS = "License Activated" })
-  T.eq("a license sends the points that waited, without waiting for a round", common.wrote(posts, mark), true)
+  T.eq("a license sends the points that waited, without waiting for a round", wrote(mark), true)
 end
 
 T.section("A connection test answering after the stop leaves Driver Status saying why")
