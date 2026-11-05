@@ -8,7 +8,9 @@ Marketing images for the InfluxDB DriverCentral listing (no product number yet).
 | `banners/launch-post-2400x1200` | 2400x1200 | Launch posts (c4forums, Reddit, Discord) |
 | `banners/facts-strip-2400x200` | 2400x200 | The first image in the listing's description: four facts in a row |
 
-`assets/` holds what the pages share: the Finite Labs logo, and InfluxDB's Cubo in white as `brand-mark.png`, exported from this repo's `resources/Driver Icons.sketch` (the art its icons use). InfluxData's logos are on https://influxdata.github.io/branding/logo/brands/; its trademark guidelines (https://www.influxdata.com/legal/guidelines-for-using-influxdata-trademarks/) allow naming the product but ask for a written logo license, and the Cubo needs special permission. We haven't obtained that license; the mark is used only to name the database the driver writes to, with the ® and the guidelines' footnote on every page that shows it.
+`assets/` holds what the pages share: the Finite Labs logo, `scene.js`, which draws the banners' art, and InfluxDB's Cubo as `brand-mark.png`: `cubo-teal.png` from InfluxData's logo downloads (https://influxdata.github.io/branding/logo/downloads/), with only its transparent margin trimmed. The kit has no white Cubo, and teal reads on the dark banners. InfluxData's trademark guidelines (https://www.influxdata.com/legal/guidelines-for-using-influxdata-trademarks/) allow naming the product but ask for a written logo license, and the Cubo needs special permission. We haven't obtained that license; the mark is used only to name the database the driver writes to, with the ® and the guidelines' footnote on every page that shows it.
+
+The banners' art is `chart`: a live line chart of logged readings, set on each banner's `<svg class="scene">`. The template's DriverCentral README lists the styles, and the headline, chips and subtitle shrink until they end clear of the art.
 
 ## Rendering
 
