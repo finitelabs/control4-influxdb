@@ -30,10 +30,14 @@ local InfluxClient = {}
 InfluxClient.__index = InfluxClient
 
 --- Create a new InfluxClient instance.
+--- @param opts? table `isRunning`: function() -> bool; while false, no status reaches Driver Status or its events.
 --- @return InfluxClient
-function InfluxClient:new()
+function InfluxClient:new(opts)
   log:trace("InfluxClient:new()")
   local instance = setmetatable({}, self)
+  instance._isRunning = (opts and opts.isRunning) or function()
+    return true
+  end
   instance._config = {
     url = "",
     token = "",
@@ -133,6 +137,9 @@ end
 --- @param status string|nil Optional status text override.
 function InfluxClient:updateConnectionStatus(connected, status)
   log:trace("InfluxClient:updateConnectionStatus(%s, '%s')", tostring(connected), tostring(status))
+  if not self._isRunning() then
+    return -- a test or write answering after the license stop changes nothing
+  end
   local changed = self._connected ~= connected
   self._connected = connected
 
