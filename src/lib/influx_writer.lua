@@ -278,6 +278,7 @@ end
 ---   - onConnected: function(bool)         called on successful/failed write
 ---   - onWriteError: function(errMsg)      called on write error
 ---   - onBufferFull: function()            called when buffer evicts oldest points
+---   - isRunning: function() -> bool       false holds every flush, its points kept in the buffer
 --- @return InfluxWriter
 function InfluxWriter:new(opts)
   opts = opts or {}
@@ -289,6 +290,9 @@ function InfluxWriter:new(opts)
   instance._onConnected = opts.onConnected
   instance._onWriteError = opts.onWriteError
   instance._onBufferFull = opts.onBufferFull
+  instance._isRunning = opts.isRunning or function()
+    return true
+  end
 
   --- Per-buffer state keyed by measurement and interval (see stateKeyFor), so
   --- one flush carries every reading sharing a measurement and a schedule.
@@ -488,6 +492,9 @@ function InfluxWriter:_flushMeasurement(stateKey)
   local state = self._measurements[stateKey]
   if not state or #state.buffer == 0 then
     return
+  end
+  if not self._isRunning() then
+    return -- the points wait in the buffer, and nothing re-arms until a flush runs again
   end
 
   if state.inFlight then

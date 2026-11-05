@@ -34,9 +34,19 @@ local agents = require("lib.agents")
 --- @type boolean
 local gInitialized = false
 
+--- Whether the license gate lets the driver collect and write. An OSS build has no gate.
+--- @return boolean
+local function running()
+  local ok = true
+  --#ifdef DRIVERCENTRAL
+  ok = drivercentral:licensed()
+  --#endif
+  return ok
+end
+
 --- InfluxDB connection client.
 --- @type InfluxClient
-local influxClient = InfluxClient:new()
+local influxClient = InfluxClient:new({ isRunning = running })
 
 --- Whether a drain cycle is currently in flight (waiting for HTTP callback).
 --- @type boolean
@@ -76,16 +86,6 @@ end
 -- Helpers
 ---------------------------------------------------------------------------
 
---- Whether the license gate lets the driver collect and write. An OSS build has no gate.
---- @return boolean
-local function running()
-  local ok = true
-  --#ifdef DRIVERCENTRAL
-  ok = drivercentral:licensed()
-  --#endif
-  return ok
-end
-
 --- Tests the InfluxDB connection, unless the license gate holds the driver stopped.
 local function checkConnection()
   if running() then
@@ -96,9 +96,6 @@ end
 --- Handle an offline-buffer state change (called from OfflineBuffer callbacks).
 --- @param state string One of "Connected", "Disconnected", "Reconnecting"
 local function onBufferStateChange(state)
-  if not running() then
-    return
-  end
   if state == OfflineBuffer.State.CONNECTED then
     influxClient:updateConnectionStatus(true)
     if offlineBuffer then
@@ -165,9 +162,7 @@ local function initInfluxWriter()
       }
     end,
     onConnected = function(connected)
-      if running() then
-        influxClient:updateConnectionStatus(connected)
-      end
+      influxClient:updateConnectionStatus(connected)
     end,
     onWriteError = function(errMsg)
       log:error("InfluxWriter error: %s", errMsg or "unknown")
@@ -176,6 +171,7 @@ local function initInfluxWriter()
     onBufferFull = function()
       C4:FireEvent("Buffer Full")
     end,
+    isRunning = running,
   })
   log:info("InfluxWriter batch engine initialized")
 end
@@ -944,6 +940,8 @@ function OnDriverLateInit()
       log:info("License active; collecting and writing again")
       subEngine:restartIntervalTimers()
       checkConnection()
+      -- Points that waited in the writer's buffers go out now.
+      influxWriter:forceFlushAll()
       if offlineBuffer:size() > 0 then
         offlineBuffer:triggerDrain()
       end
