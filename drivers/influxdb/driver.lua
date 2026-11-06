@@ -928,7 +928,7 @@ function OnDriverLateInit()
       log:info("License active; collecting and writing again")
       subEngine:restartIntervalTimers()
       checkConnection()
-      -- Points that waited in the writer's buffers go out now.
+      -- Points that waited in the writer's buffers go out now, or at their retry if one is pending.
       influxWriter:forceFlushAll()
       if offlineBuffer:size() > 0 then
         offlineBuffer:triggerDrain()
