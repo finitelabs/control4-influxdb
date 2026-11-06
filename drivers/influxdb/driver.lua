@@ -777,18 +777,6 @@ function UIR._INCLUDE_DEVICE_TAGS(tParams)
   return UIR._GET_CONFIG()
 end
 
---- Validate a transform expression.
---- @param tParams table
-function UIR._VALIDATE_TRANSFORM(tParams)
-  log:trace("UIR.VALIDATE_TRANSFORM()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
-  local valid, err = transform.validate(params.expression or "")
-  C4:SendDataToUI("VALIDATE_RESULT", {
-    valid = valid and "true" or "false",
-    error = err or "",
-  })
-end
-
 ---------------------------------------------------------------------------
 -- Action Handlers (via ExecuteCommand / EC table)
 ---------------------------------------------------------------------------
