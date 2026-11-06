@@ -57,6 +57,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   resumes writing, and counts each recovery in a new metric.
 - Fixed a buffer flush being re-armed while the driver was shutting down, so a
   timer could fire into a driver that was already being removed or reloaded.
+- Fixed the `Extended Outage` event never firing. It now fires once writes to
+  InfluxDB have failed for the `Outage Notification Threshold`, once per outage.
 
 <!-- #ifdef DRIVERCENTRAL -->
 
@@ -70,6 +72,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   starts it again at once.
 
 <!-- #endif -->
+
+### Removed
+
+- Removed the `Max Buffer Size` and `Offline Buffer Size` properties and the
+  `Clear Offline Buffer` action, which never did anything. The driver limits
+  unsent data itself, and the `INFLUX_POINTS_BUFFERED` variable shows how many
+  points are waiting.
 
 ## v20260816 - 2026-08-16
 

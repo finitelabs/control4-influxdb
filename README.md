@@ -59,7 +59,7 @@ automatic offline buffering and retry.
 - Define multiple measurements with independent write intervals
 - Configurable timestamp precision (nanoseconds, microseconds, milliseconds,
   seconds)
-- Automatic offline buffering with configurable capacity
+- Automatic offline buffering within a fixed memory limit
 - Exponential-backoff retry when the InfluxDB server is unreachable
 - Extended outage notification event
 - Connection status events and conditionals for programming
@@ -246,19 +246,10 @@ interval and at most 8 MB across all of them, and then drops the oldest points
 from the largest first. Those 8 MB hold about 18 hours for 100 readings that all
 change every minute, and longer for readings that change less often.
 
-##### Max Buffer Size
-
-Maximum number of data points to buffer when the InfluxDB server is unreachable.
-Default is `10000`.
-
 ##### Outage Notification Threshold \[ 1m | **_5m_** | 15m | 30m | 1h \]
 
-Fires the **Extended Outage** event after the driver has been disconnected for
-this duration. Default is `5m`.
-
-##### Offline Buffer Size (read-only)
-
-Displays the current number of data points in the offline buffer.
+Fires the **Extended Outage** event once writes to InfluxDB have failed for this
+long, once per outage. Default is `5m`.
 
 ### Driver Actions
 
@@ -267,26 +258,32 @@ Displays the current number of data points in the offline buffer.
 Trigger the driver to update from the latest release on GitHub, regardless of
 the current version.
 
-#### Clear Offline Buffer
-
-Discards all data points in the offline buffer without writing them.
-
 # <span style="color:#020A47">Programming</span>
 
 ## Events
 
-| Event           | Description                                                                                   |
-| --------------- | --------------------------------------------------------------------------------------------- |
-| Connected       | Fires when the driver successfully connects to the InfluxDB server                            |
-| Disconnected    | Fires when the driver can't reach the InfluxDB server or a write fails with a server error    |
-| Write Error     | Fires when a batch write returns a non-2xx response from InfluxDB                             |
-| Buffer Full     | Fires when the driver starts dropping unsent points, and again only after delivery resumes    |
-| Extended Outage | Fires when the driver has been disconnected longer than the **Outage Notification Threshold** |
+| Event           | Description                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------ |
+| Connected       | Fires when the driver successfully connects to the InfluxDB server                         |
+| Disconnected    | Fires when the driver can't reach the InfluxDB server or a write fails with a server error |
+| Write Error     | Fires when a batch write returns a non-2xx response from InfluxDB                          |
+| Buffer Full     | Fires when the driver starts dropping unsent points, and again only after delivery resumes |
+| Extended Outage | Fires once writes have failed for the **Outage Notification Threshold**, once per outage   |
 
 ## Variables
 
-This driver does not expose Control4 variables. It subscribes to variables from
-other drivers to log their values to InfluxDB.
+The driver counts what it writes in these variables, from when it last started.
+It also subscribes to variables from other drivers to log their values to
+InfluxDB.
+
+| Variable               | Type   | Description                                                        |
+| ---------------------- | ------ | ------------------------------------------------------------------ |
+| INFLUX_POINTS_BUFFERED | INT    | Points waiting to be sent                                          |
+| INFLUX_POINTS_WRITTEN  | INT    | Points written to InfluxDB                                         |
+| INFLUX_POINTS_DROPPED  | INT    | Points dropped by the memory limit or refused by InfluxDB          |
+| INFLUX_WRITE_ERRORS    | INT    | Writes that failed                                                 |
+| INFLUX_WATCHDOG_FIRES  | INT    | Writes left with no answer that the driver cleared and sent again  |
+| INFLUX_LAST_WRITE_TS   | STRING | Time of the last successful write, in seconds since 1 January 1970 |
 
 ## Conditionals
 
@@ -348,6 +345,15 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   resumes writing, and counts each recovery in a new metric.
 - Fixed a buffer flush being re-armed while the driver was shutting down, so a
   timer could fire into a driver that was already being removed or reloaded.
+- Fixed the `Extended Outage` event never firing. It now fires once writes to
+  InfluxDB have failed for the `Outage Notification Threshold`, once per outage.
+
+### Removed
+
+- Removed the `Max Buffer Size` and `Offline Buffer Size` properties and the
+  `Clear Offline Buffer` action, which never did anything. The driver limits
+  unsent data itself, and the `INFLUX_POINTS_BUFFERED` variable shows how many
+  points are waiting.
 
 ## v20260816 - 2026-08-16
 

@@ -50,13 +50,9 @@ return {
   --- @type number
   MAX_BATCH_SIZE = 5000,
 
-  --- Maximum number of points to buffer when offline.
+  --- Points each writer buffer holds, one buffer per measurement and write interval.
   --- @type number
   MAX_BUFFER_SIZE = 10000,
-
-  --- Maximum offline buffer size in bytes (~1 MB).
-  --- @type number
-  MAX_BUFFER_BYTES = 1048576,
 
   --- Line-protocol bytes the writer holds across all its buffers, in flight included. Past
   --- this the largest buffer loses its oldest points. At about 75 B a point that's about

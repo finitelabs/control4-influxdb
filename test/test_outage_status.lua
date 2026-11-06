@@ -84,4 +84,130 @@ do
   T.check("a Write Error says it failed", count("Write Error") >= 1, count("Write Error"))
 end
 
+-- The delay each outage clock starts with, and what it runs when it comes due.
+local outageDelays, outageClocks = {}, {}
+local driverSetTimer = SetTimer
+SetTimer = function(name, ms, fn, repeating) -- luacheck: ignore
+  if name == "InfluxExtendedOutage" then
+    outageDelays[#outageDelays + 1] = ms
+    outageClocks[#outageClocks + 1] = fn
+  end
+  return driverSetTimer(name, ms, fn, repeating)
+end
+
+T.section("A long outage")
+do
+  answer = { code = 204 }
+  write()
+  events = {}
+  answer = { code = 0, err = "Connection refused" }
+  write()
+  T.eq("a failed write starts the clock at the threshold", outageDelays, { 300000 })
+  T.eq("Extended Outage waits for it", count("Extended Outage"), 0)
+  write()
+  T.eq("then fires", count("Extended Outage"), 1)
+  for _ = 1, 5 do
+    write()
+  end
+  T.eq("once for the outage", count("Extended Outage"), 1)
+  T.eq("and the clock doesn't start again", #outageDelays, 1)
+
+  answer = { code = 204 }
+  for _ = 1, 3 do
+    write()
+  end
+  T.eq("the server is back", Properties["Driver Status"], "Connected")
+  Properties["Outage Notification Threshold"] = "15m"
+  OnPropertyChanged("Outage Notification Threshold")
+  answer = { code = 0, err = "Connection refused" }
+  write()
+  T.eq("the next outage starts the clock at the new threshold", outageDelays[2], 900000)
+  write()
+  T.eq("and fires again", count("Extended Outage"), 2)
+end
+
+T.section("A failure that clears before the threshold")
+do
+  answer = { code = 204 }
+  for _ = 1, 3 do
+    write()
+  end
+  events = {}
+  answer = { code = 0, err = "Connection refused" }
+  write()
+  T.eq("the clock starts", #outageDelays, 3)
+  -- The connection test answers, so this reports connected before the clock runs out.
+  OnPropertyChanged("Database")
+  T.eq("the test gets through", Properties["Driver Status"], "Connected")
+  answer = { code = 204 }
+  ShimFireTimers()
+  T.eq("Extended Outage doesn't fire", count("Extended Outage"), 0)
+end
+
+T.section("A setting that isn't complete isn't an outage")
+do
+  local outages = #outageDelays
+  answer = { code = 204 }
+  for _ = 1, 3 do
+    write()
+  end
+  events = {}
+  Properties["InfluxDB URL"] = ""
+  OnPropertyChanged("InfluxDB URL")
+  T.eq("Driver Status says so", Properties["Driver Status"], "Not configured")
+  for _ = 1, 3 do
+    write()
+  end
+  T.eq("no clock starts", #outageDelays, outages)
+  T.eq("and Extended Outage doesn't fire", count("Extended Outage"), 0)
+end
+
+T.section("A connection test that can't reach the server")
+do
+  local outages = #outageDelays
+  local answeringUrlDo = urlDo
+  urlDo = function(_, url, _, _, callback)
+    callback("Connection refused", 0, {}, "", nil, url)
+  end
+  Properties["InfluxDB URL"] = "http://198.51.100.20:8181"
+  OnPropertyChanged("InfluxDB URL")
+  T.eq("Driver Status shows the test's answer", Properties["Driver Status"], "HTTP 0")
+  T.eq("and the clock starts", #outageDelays, outages + 1)
+  urlDo = answeringUrlDo
+end
+
+T.section("A license that lapses during an outage")
+do
+  answer = { code = 204 }
+  for _ = 1, 3 do
+    write()
+  end
+  events = {}
+  local outages = #outageDelays
+  cloud.answer = { AC = 0, AS = "Invalid License" }
+  for _ = 1, 28 do
+    write()
+  end
+  local answeringUrlDo = urlDo
+  urlDo = function(_, url, _, _, callback)
+    callback("Connection refused", 0, {}, "", nil, url)
+  end
+  answer = { code = 0, err = "Connection refused" }
+  write()
+  T.eq("the clock starts", #outageDelays, outages + 1)
+  -- Held back, so it runs out after the driver stops.
+  local clock = outageClocks[#outageClocks]
+  CancelTimer("InfluxExtendedOutage")
+  write()
+  T.eq("the 30th read stops the driver", Properties["Driver Status"], "No active license")
+  clock()
+  T.eq("Extended Outage doesn't fire while it's stopped", count("Extended Outage"), 0)
+  cloud.answer = { AC = 1, AS = "License Activated" }
+  cloud.say({ AC = 1, AS = "License Activated" })
+  T.eq("once licensed, the failing test starts the clock again", #outageDelays, outages + 2)
+  write()
+  T.eq("and it fires", count("Extended Outage"), 1)
+  urlDo = answeringUrlDo
+end
+
 T.finish()
