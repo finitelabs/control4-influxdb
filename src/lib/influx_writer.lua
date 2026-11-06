@@ -351,8 +351,9 @@ function InfluxWriter:_getMeasurementState(stateKey, measurementName, intervalSe
       -- instead would let a measurement called "power" claim "power@rack".
       measurementName = measurementName,
       buffer = {},
-      -- Bytes in buffer, not counting a batch in flight.
+      -- Bytes in buffer, and in the batch in flight.
       bufferBytes = 0,
+      inFlightBytes = 0,
       -- Set when this buffer loses a point, until points reach the server again.
       evicted = false,
       timerName = nil,
@@ -388,15 +389,27 @@ function InfluxWriter:_updateMetricVariables()
   values:update("INFLUX_LAST_WRITE_TS", m.lastWriteTimestamp > 0 and m.lastWriteTimestamp or "", "STRING")
 end
 
---- Drop a buffer's oldest point.
+--- Drop a buffer's oldest point, which is in a batch in flight if it has one. A request that
+--- is out may still deliver that point: it counts as dropped either way, since it's no longer
+--- held for a retry.
 --- @param state table
 function InfluxWriter:_evictOldest(state)
-  local oldest = table.remove(state.buffer, 1)
-  state.bufferBytes = state.bufferBytes - #oldest
+  local inFlight = state.inFlightBatch and #state.inFlightBatch > 0
+  local oldest = table.remove(inFlight and state.inFlightBatch or state.buffer, 1)
+  if inFlight then
+    state.inFlightBytes = state.inFlightBytes - #oldest
+  else
+    state.bufferBytes = state.bufferBytes - #oldest
+    self._metrics.pointsBuffered = math.max(0, self._metrics.pointsBuffered - 1)
+  end
   self._heldBytes = self._heldBytes - #oldest
   state.evicted = true
+  if #state.buffer == 0 and not state.inFlight then
+    -- Nothing left to deliver, so no delivery will clear what dedup remembers of the lost point.
+    state.evicted = false
+    state.lastValues = {}
+  end
   self._metrics.pointsDropped = self._metrics.pointsDropped + 1
-  self._metrics.pointsBuffered = math.max(0, self._metrics.pointsBuffered - 1)
   log:warn("InfluxWriter: buffer full for '%s', evicting oldest point", state.measurementName)
   if self._onBufferFull and not self._bufferFullFired then
     self._bufferFullFired = true
@@ -404,14 +417,15 @@ function InfluxWriter:_evictOldest(state)
   end
 end
 
---- The buffer holding the most bytes, so one that stopped changing can't keep the whole
---- budget from one still being written.
---- @return table|nil state Nil when every buffer is empty.
+--- The buffer holding the most bytes, in flight included, so one that stopped changing can't
+--- keep the whole budget from one still being written.
+--- @return table|nil state Nil when nothing is held.
 function InfluxWriter:_largestBuffer()
-  local largest
+  local largest, largestBytes = nil, 0
   for _, state in pairs(self._measurements) do
-    if #state.buffer > 0 and (not largest or state.bufferBytes > largest.bufferBytes) then
-      largest = state
+    local bytes = state.bufferBytes + state.inFlightBytes
+    if bytes > largestBytes then
+      largest, largestBytes = state, bytes
     end
   end
   return largest
@@ -573,6 +587,7 @@ function InfluxWriter:_flushMeasurement(stateKey)
       self:_restoreBatch(state, state.inFlightBatch)
     end
     state.inFlightBatch = nil
+    state.inFlightBytes = 0
     state.inFlight = false
     state.epoch = state.epoch + 1
     self._metrics.watchdogFires = self._metrics.watchdogFires + 1
@@ -613,6 +628,7 @@ function InfluxWriter:_flushMeasurement(stateKey)
   state.lastFlushTime = os.time()
   state.inFlight = true
   state.inFlightBatch = batch
+  state.inFlightBytes = batchBytes
   -- Snapshot the generation so a watchdog reissue fences this request's handlers
   -- off from the reissued one's state.
   local epoch = state.epoch
@@ -627,7 +643,8 @@ function InfluxWriter:_flushMeasurement(stateKey)
       state.inFlight = false
       state.inFlightBatch = nil
       state.retryIndex = 1
-      self._heldBytes = self._heldBytes - batchBytes
+      self._heldBytes = self._heldBytes - state.inFlightBytes
+      state.inFlightBytes = 0
       self._bufferFullFired = false
       if state.evicted then
         -- A reading's latest point may be among those lost, and dedup would keep its
@@ -655,8 +672,10 @@ function InfluxWriter:_flushMeasurement(stateKey)
       -- From the state, not this closure: a request whose callback is lost holds what it
       -- captures, and a lost request is what the watchdog recovers from.
       local held = state.inFlightBatch
+      local heldBytes = state.inFlightBytes
       state.inFlight = false
       state.inFlightBatch = nil
+      state.inFlightBytes = 0
       self._metrics.writeErrors = self._metrics.writeErrors + 1
       self:_updateMetricVariables()
 
@@ -689,12 +708,12 @@ function InfluxWriter:_flushMeasurement(stateKey)
       else
         log:error(
           "InfluxWriter: dropping %d points for '%s' (permanent error: %s)",
-          batchSize,
+          #held,
           stateKey,
           err.errMsg or "unknown"
         )
-        self._heldBytes = self._heldBytes - batchBytes
-        self._metrics.pointsDropped = self._metrics.pointsDropped + batchSize
+        self._heldBytes = self._heldBytes - heldBytes
+        self._metrics.pointsDropped = self._metrics.pointsDropped + #held
         self:_updateMetricVariables()
 
         if self._onConnected then
@@ -764,10 +783,7 @@ function InfluxWriter:removeMeasurement(measurementName)
         CancelTimer(state.timerName)
       end
 
-      self._heldBytes = self._heldBytes - state.bufferBytes
-      for _, l in ipairs(state.inFlightBatch or {}) do
-        self._heldBytes = self._heldBytes - #l
-      end
+      self._heldBytes = self._heldBytes - state.bufferBytes - state.inFlightBytes
       -- A batch still in flight is released here, so its handlers, if they ever run, do nothing.
       state.epoch = state.epoch + 1
 

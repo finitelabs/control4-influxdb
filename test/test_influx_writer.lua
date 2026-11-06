@@ -597,6 +597,158 @@ case("a point larger than the budget goes in alone", function()
   end)
 end)
 
+T.section("A batch in flight gives up its points too")
+
+--- What every batch in flight holds, in bytes.
+local function inFlightBytes(w)
+  local total = 0
+  for _, state in pairs(w._measurements) do
+    for _, line in ipairs(state.inFlightBatch or {}) do
+      total = total + #line
+    end
+  end
+  return total
+end
+
+case("with whole buffers in flight, the oldest points go, not the newest", function()
+  local _, pending = captureWrites()
+  local w = newWriter()
+  withBudget(600, function()
+    for i = 1, 60 do
+      point(w, "old", i)
+    end
+    w:forceFlushAll()
+    for i = 61, 90 do
+      point(w, "new", i)
+    end
+    T.eq("the new measurement keeps every point", #w._measurements["new@60"].buffer, 30)
+    local batch = w._measurements["old@60"].inFlightBatch
+    T.check("the batch out lost some", #batch < 60, #batch)
+    T.falsy("from its oldest", batch[1]:find("v=1i", 1, true) ~= nil, batch[1])
+    T.truthy("keeping its newest", batch[#batch]:find("v=60i", 1, true) ~= nil, batch[#batch])
+    T.check("the bytes held stay within the budget", w._heldBytes <= 600, w._heldBytes)
+    T.eq("the count matches what's held", w._heldBytes, bufferedBytes(w) + inFlightBytes(w))
+    local kept = #batch
+
+    settle(pending, 1, false)
+    T.eq("a failure restores only what's left", #w._measurements["old@60"].buffer, kept)
+    T.eq("the count still matches", w._heldBytes, bufferedBytes(w))
+    T.eq("the buffered metric agrees", w._metrics.pointsBuffered, kept + 30)
+  end)
+end)
+
+case("a delivery after points were taken from its batch releases only what's left", function()
+  local _, pending = captureWrites()
+  local w = newWriter()
+  withBudget(300, function()
+    for i = 1, 40 do
+      point(w, "old", i)
+    end
+    w:forceFlushAll()
+    for i = 1, 40 do
+      point(w, "new", i)
+    end
+    settle(pending, 1)
+    T.eq("the count matches what's buffered", w._heldBytes, bufferedBytes(w))
+  end)
+end)
+
+case("a batch refused for good after losing points drops only what it still held", function()
+  local _, pending = captureWrites()
+  local w = newWriter()
+  withBudget(100, function()
+    for i = 1, 10 do
+      point(w, "m", i)
+    end
+    w:forceFlushAll()
+    for i = 11, 40 do
+      point(w, "m", i)
+    end
+    local dropped, held = w._metrics.pointsDropped, #w._measurements["m@60"].inFlightBatch
+    pending[1]._err({ retriable = false, errMsg = "bad token" })
+    T.eq("no point counts twice", w._metrics.pointsDropped, dropped + held)
+    T.eq("the count matches what's buffered", w._heldBytes, bufferedBytes(w))
+  end)
+end)
+
+case("a reading that changes while the budget is in flight isn't stranded", function()
+  local posts, pending = captureWrites()
+  local w = newWriter()
+  local function lone(value)
+    w:enqueue("lone", {}, { v = field(value) }, { interval = 60, dedup = true, dedupKey = "lone" })
+  end
+  withBudget(600, function()
+    for i = 1, 90 do
+      point(w, "busy", i)
+    end
+    w:forceFlushAll()
+    lone(42)
+    for i = 91, 110 do
+      point(w, "other", i)
+    end
+    T.eq("its point is kept", #w._measurements["lone@60"].buffer, 1)
+    settle(pending, 1)
+    w:forceFlushAll()
+    local sent = {}
+    for _, batch in ipairs(posts) do
+      sent[#sent + 1] = table.concat(batch, "\n")
+    end
+    T.truthy("and goes out", table.concat(sent, "\n"):find("lone v=42i", 1, true) ~= nil)
+  end)
+end)
+
+case("a buffer that loses its only point writes that value again", function()
+  captureWrites()
+  local w = newWriter()
+  local function lone(value)
+    w:enqueue("lone", {}, { v = field(value) }, { interval = 60, dedup = true, dedupKey = "lone" })
+  end
+  withBudget(40, function()
+    lone(42)
+    point(w, "big", 1, string.rep("x", 100))
+  end)
+  T.eq("its point is gone", #w._measurements["lone@60"].buffer, 0)
+  lone(42)
+  T.eq("and the unchanged value is buffered again", #w._measurements["lone@60"].buffer, 1)
+end)
+
+case("a long-running request at the ceiling keeps the newest points of every reading", function()
+  local _, pending = captureWrites()
+  local w = newWriter()
+  local answered = 0
+  withBudget(4000, function()
+    for tick = 1, 300 do
+      for m = 1, 57 do
+        point(w, "m" .. m, tick)
+      end
+      -- Requests that last two ticks: what's out now is answered, with a failure, two ticks later.
+      if tick % 2 == 0 then
+        w:forceFlushAll()
+        while answered + 57 < #pending do
+          answered = answered + 1
+          settle(pending, answered, false)
+          for _, state in pairs(w._measurements) do
+            if state.timerName then
+              CancelTimer(state.timerName)
+              state.timerName = nil
+            end
+          end
+        end
+      end
+    end
+  end)
+  local kept = 0
+  for m = 1, 57 do
+    for _, line in ipairs(w._measurements["m" .. m .. "@60"].buffer) do
+      if line:find("v=300i", 1, true) then
+        kept = kept + 1
+      end
+    end
+  end
+  T.eq("the last tick's points are all held", kept, 57)
+  T.check("the bytes held stay within the budget", w._heldBytes <= 4000, w._heldBytes)
+end)
+
 T.section("What the budget counts")
 
 case("a batch in flight counts until it's delivered", function()
