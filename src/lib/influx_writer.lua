@@ -404,7 +404,7 @@ function InfluxWriter:_evictOldest(state)
   end
   self._heldBytes = self._heldBytes - #oldest
   state.evicted = true
-  if #state.buffer == 0 and not state.inFlight then
+  if #state.buffer == 0 and #(state.inFlightBatch or {}) == 0 then
     -- Nothing left to deliver, so no delivery will clear what dedup remembers of the lost point.
     state.evicted = false
     state.lastValues = {}
