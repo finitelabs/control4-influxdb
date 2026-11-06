@@ -73,4 +73,42 @@ else
   print("SKIP: node not installed; the page's own line was not run")
 end
 
+T.section("A property set encodes what Director reads as XML")
+T.check(
+  "the page's setProperty does",
+  page:find("String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;')", 1, true) ~= nil
+)
+
+T.section("Names outside Latin-1 keep their own ids")
+if hasNode() then
+  local line = assert(page:match("(function escId%(s%).-)\n"), "no escId in the page")
+  local names = {
+    "\208\154\209\131\209\133\208\189\209\143",
+    "\208\146\208\176\208\189\208\189\208\176",
+    "\230\151\165\230\156\172",
+    "\230\184\169\229\186\166",
+    "a_b",
+    "a b",
+    "a__b",
+  }
+  local path = os.tmpname()
+  local file = assert(io.open(path, "w"))
+  file:write("function str(s) { return String(s); }\n", line, "\n")
+  file:write("process.stdout.write(JSON.stringify(", JSON:encode(names), ".map(escId)));\n")
+  file:close()
+  local pipe = io.popen(string.format("node '%s' 2>/dev/null", path))
+  local ids = JSON:decode(pipe:read("*a"))
+  pipe:close()
+  os.remove(path)
+  local seen = {}
+  for i, id in ipairs(ids) do
+    T.check(names[i] .. " has an id of its own", not seen[id], id)
+    T.check(names[i] .. "'s id can't split", not id:find("__", 1, true), id)
+    T.check(names[i] .. "'s id is safe in markup", id:match("^[%w_]+$") ~= nil, id)
+    seen[id] = true
+  end
+else
+  print("SKIP: node not installed; the page's ids were not run")
+end
+
 T.finish()

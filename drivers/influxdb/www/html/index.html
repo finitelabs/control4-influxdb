@@ -454,7 +454,8 @@ function getProperties() { return api('GET', '/api/v1/items/' + gDriverId + '/pr
 // Set a property value
 function setProperty(name, value) {
   var props = {};
-  props[name] = value;
+  // Director reads this as XML: a raw < loses the change, while the reply still says updated.
+  props[name] = String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;');
   return api('POST', '/api/v1/items/' + gDriverId + '/properties', { properties: props });
 }
 
@@ -1223,7 +1224,8 @@ function resolveCurrentValue(mapping) {
 // computed to 0 rendered as a bare "=" with nothing after it.
 function str(s) { return (s === null || s === undefined) ? '' : String(s); }
 function esc(s) { return str(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-function escId(s) { return str(s).replace(/[^a-zA-Z0-9_]/g,'_'); }
+// Unique per name and never holding __, since an id joins two of these and splits on __.
+function escId(s) { return str(s).replace(/[^a-zA-Z0-9]/g,function(c){return '_'+('000'+c.charCodeAt(0).toString(16)).slice(-4);}); }
 function unescId(id) {
   if (!gEditingMeas || !gConfig[gEditingMeas]) return id;
   var m = gConfig[gEditingMeas];
