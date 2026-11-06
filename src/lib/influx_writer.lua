@@ -197,7 +197,7 @@ end
 
 --- Post a batch of line-protocol strings to InfluxDB.
 --- Returns a Deferred that resolves with { count = number } on success,
---- or rejects with { retriable = bool, retryAfter = number|nil, errMsg = string } on failure.
+--- or rejects with { retriable = bool, retryAfter = number|nil, reachable = bool|nil, errMsg = string } on failure.
 --- @param url string        Full write endpoint URL
 --- @param token string      API token (may be empty string)
 --- @param lines string[]    Array of line-protocol strings
@@ -221,6 +221,9 @@ function InfluxWriter.postBatch(url, token, lines)
 
   log:debug("InfluxWriter.postBatch: posting %d lines to %s", #lines, url)
 
+  -- The count, not the lines: a request whose callback is lost holds what this closure does.
+  local count = #lines
+
   C4:urlPost(url, payload, headers, false, function(ticketId, strData, responseCode, tHeaders, strError)
     if strError and strError ~= "" then
       log:error("InfluxWriter: network error: %s", strError)
@@ -229,8 +232,8 @@ function InfluxWriter.postBatch(url, token, lines)
     end
 
     if responseCode == 200 or responseCode == 204 then
-      log:debug("InfluxWriter: write OK (HTTP %d), %d points", responseCode, #lines)
-      d:resolve({ count = #lines })
+      log:debug("InfluxWriter: write OK (HTTP %d), %d points", responseCode, count)
+      d:resolve({ count = count })
     elseif responseCode == 401 then
       log:error("InfluxWriter: authentication failed (HTTP 401) — check API token")
       d:reject({ retriable = false, retryAfter = nil, errMsg = "authentication error (HTTP 401)" })
@@ -250,7 +253,7 @@ function InfluxWriter.postBatch(url, token, lines)
         end
       end
       log:warn("InfluxWriter: rate limited (HTTP 429), retry-after=%s", tostring(retryAfter))
-      d:reject({ retriable = true, retryAfter = retryAfter, errMsg = "rate limited (HTTP 429)" })
+      d:reject({ retriable = true, retryAfter = retryAfter, reachable = true, errMsg = "rate limited (HTTP 429)" })
     elseif responseCode >= 500 then
       log:error("InfluxWriter: server error (HTTP %d): %s", responseCode, strData or "")
       d:reject({
@@ -303,6 +306,14 @@ function InfluxWriter:new(opts)
   --- is going away.
   instance._shuttingDown = false
 
+  --- Bytes of line protocol held across every buffer, in flight included.
+  --- @type number
+  instance._heldBytes = 0
+
+  --- Whether onBufferFull has fired since points last reached the server.
+  --- @type boolean
+  instance._bufferFullFired = false
+
   instance._metrics = {
     pointsBuffered = 0,
     pointsWritten = 0,
@@ -340,6 +351,10 @@ function InfluxWriter:_getMeasurementState(stateKey, measurementName, intervalSe
       -- instead would let a measurement called "power" claim "power@rack".
       measurementName = measurementName,
       buffer = {},
+      -- Bytes in buffer, not counting a batch in flight.
+      bufferBytes = 0,
+      -- Set when this buffer loses a point, until points reach the server again.
+      evicted = false,
       timerName = nil,
       -- dedup scope -> field key -> last buffered value. Scoped per reading:
       -- readings share a buffer and would otherwise dedup against each other.
@@ -371,6 +386,35 @@ function InfluxWriter:_updateMetricVariables()
   values:update("INFLUX_WRITE_ERRORS", m.writeErrors, "INT")
   values:update("INFLUX_WATCHDOG_FIRES", m.watchdogFires, "INT")
   values:update("INFLUX_LAST_WRITE_TS", m.lastWriteTimestamp > 0 and m.lastWriteTimestamp or "", "STRING")
+end
+
+--- Drop a buffer's oldest point.
+--- @param state table
+function InfluxWriter:_evictOldest(state)
+  local oldest = table.remove(state.buffer, 1)
+  state.bufferBytes = state.bufferBytes - #oldest
+  self._heldBytes = self._heldBytes - #oldest
+  state.evicted = true
+  self._metrics.pointsDropped = self._metrics.pointsDropped + 1
+  self._metrics.pointsBuffered = math.max(0, self._metrics.pointsBuffered - 1)
+  log:warn("InfluxWriter: buffer full for '%s', evicting oldest point", state.measurementName)
+  if self._onBufferFull and not self._bufferFullFired then
+    self._bufferFullFired = true
+    pcall(self._onBufferFull)
+  end
+end
+
+--- The buffer holding the most bytes, so one that stopped changing can't keep the whole
+--- budget from one still being written.
+--- @return table|nil state Nil when every buffer is empty.
+function InfluxWriter:_largestBuffer()
+  local largest
+  for _, state in pairs(self._measurements) do
+    if #state.buffer > 0 and (not largest or state.bufferBytes > largest.bufferBytes) then
+      largest = state
+    end
+  end
+  return largest
 end
 
 --- Enqueue a data point for a measurement. Handles dedup and FIFO eviction.
@@ -415,16 +459,19 @@ function InfluxWriter:enqueue(measurementName, tags, fields, opts, timestampMs)
   end
 
   if #state.buffer >= state.maxBuffer then
-    table.remove(state.buffer, 1)
-    self._metrics.pointsDropped = self._metrics.pointsDropped + 1
-    self._metrics.pointsBuffered = math.max(0, self._metrics.pointsBuffered - 1)
-    log:warn("InfluxWriter: buffer full for '%s', evicting oldest point", measurementName)
-    if self._onBufferFull then
-      pcall(self._onBufferFull)
+    self:_evictOldest(state)
+  end
+  while self._heldBytes + #line > constants.MAX_WRITER_BUFFER_BYTES do
+    local largest = self:_largestBuffer()
+    if not largest then
+      break
     end
+    self:_evictOldest(largest)
   end
 
   state.buffer[#state.buffer + 1] = line
+  state.bufferBytes = state.bufferBytes + #line
+  self._heldBytes = self._heldBytes + #line
   self._metrics.pointsBuffered = self._metrics.pointsBuffered + 1
   self:_updateMetricVariables()
 
@@ -476,6 +523,9 @@ function InfluxWriter:_restoreBatch(state, batch)
     restored[#restored + 1] = l
   end
   state.buffer = restored
+  for _, l in ipairs(batch) do
+    state.bufferBytes = state.bufferBytes + #l
+  end
   self._metrics.pointsBuffered = self._metrics.pointsBuffered + #batch
   -- The retriable-rejection caller publishes before restoring, so without this
   -- INFLUX_POINTS_BUFFERED reads zero through an outage while points pile up.
@@ -546,8 +596,10 @@ function InfluxWriter:_flushMeasurement(stateKey)
 
   local batchSize = math.min(#state.buffer, constants.MAX_BATCH_SIZE)
   local batch = {}
+  local batchBytes = 0
   for i = 1, batchSize do
     batch[i] = state.buffer[i]
+    batchBytes = batchBytes + #batch[i]
   end
 
   local remaining = {}
@@ -555,6 +607,7 @@ function InfluxWriter:_flushMeasurement(stateKey)
     remaining[#remaining + 1] = state.buffer[i]
   end
   state.buffer = remaining
+  state.bufferBytes = state.bufferBytes - batchBytes
   self._metrics.pointsBuffered = math.max(0, self._metrics.pointsBuffered - batchSize)
 
   state.lastFlushTime = os.time()
@@ -574,6 +627,14 @@ function InfluxWriter:_flushMeasurement(stateKey)
       state.inFlight = false
       state.inFlightBatch = nil
       state.retryIndex = 1
+      self._heldBytes = self._heldBytes - batchBytes
+      self._bufferFullFired = false
+      if state.evicted then
+        -- A reading's latest point may be among those lost, and dedup would keep its
+        -- unchanged value from being written again.
+        state.evicted = false
+        state.lastValues = {}
+      end
       self._metrics.pointsWritten = self._metrics.pointsWritten + batchSize
       self._metrics.lastWriteTimestamp = os.time()
       self:_updateMetricVariables()
@@ -591,6 +652,9 @@ function InfluxWriter:_flushMeasurement(stateKey)
       if epoch ~= state.epoch then
         return -- superseded by a watchdog reissue; do not restore this batch or retry
       end
+      -- From the state, not this closure: a request whose callback is lost holds what it
+      -- captures, and a lost request is what the watchdog recovers from.
+      local held = state.inFlightBatch
       state.inFlight = false
       state.inFlightBatch = nil
       self._metrics.writeErrors = self._metrics.writeErrors + 1
@@ -601,7 +665,11 @@ function InfluxWriter:_flushMeasurement(stateKey)
       end
 
       if err.retriable then
-        self:_restoreBatch(state, batch)
+        self:_restoreBatch(state, held)
+
+        if self._onConnected and not err.reachable then
+          pcall(self._onConnected, false)
+        end
 
         -- An explicit Retry-After wins the delay, but the index still advances
         -- so a server sending short values cannot pin us at the bottom rung.
@@ -625,6 +693,7 @@ function InfluxWriter:_flushMeasurement(stateKey)
           stateKey,
           err.errMsg or "unknown"
         )
+        self._heldBytes = self._heldBytes - batchBytes
         self._metrics.pointsDropped = self._metrics.pointsDropped + batchSize
         self:_updateMetricVariables()
 
@@ -694,6 +763,13 @@ function InfluxWriter:removeMeasurement(measurementName)
       if state.timerName then
         CancelTimer(state.timerName)
       end
+
+      self._heldBytes = self._heldBytes - state.bufferBytes
+      for _, l in ipairs(state.inFlightBatch or {}) do
+        self._heldBytes = self._heldBytes - #l
+      end
+      -- A batch still in flight is released here, so its handlers, if they ever run, do nothing.
+      state.epoch = state.epoch + 1
 
       local discarded = #state.buffer
       if discarded > 0 then

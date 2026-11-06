@@ -36,6 +36,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed the driver holding far more unsent data in memory than it should during
+  an InfluxDB outage. It now holds at most 8 MB across all its measurements and
+  drops the oldest points from the largest first. Once delivery resumes, each
+  reading writes its current value again.
+- Fixed `Driver Status` reading `Connected`, and the `Disconnected` event not
+  firing, while writes failed because the server couldn't be reached.
+- Fixed the `Buffer Full` event firing for every point lost. It now fires once
+  each time points start being lost, and again only after delivery resumes.
 - Fixed a failing write retrying every 5 seconds indefinitely against a down or
   overloaded InfluxDB. Retries now climb the intended backoff ladder, from 5
   seconds up to 15 minutes, and reset once a write succeeds.

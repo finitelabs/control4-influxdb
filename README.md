@@ -238,6 +238,12 @@ measurements can override this value. Default is `1m`.
 
 #### Offline Buffer & Retry
 
+While InfluxDB can't be reached, the driver keeps unsent points in memory and
+sends them when it can. It holds up to 10,000 points per measurement and write
+interval and at most 8 MB across all of them, and then drops the oldest points
+from the largest first. Those 8 MB hold about 18 hours for 100 readings that all
+change every minute, and longer for readings that change less often.
+
 ##### Max Buffer Size
 
 Maximum number of data points to buffer when the InfluxDB server is unreachable.
@@ -270,9 +276,9 @@ Discards all data points in the offline buffer without writing them.
 | Event           | Description                                                                                   |
 | --------------- | --------------------------------------------------------------------------------------------- |
 | Connected       | Fires when the driver successfully connects to the InfluxDB server                            |
-| Disconnected    | Fires when the driver loses connectivity to the InfluxDB server                               |
+| Disconnected    | Fires when the driver can't reach the InfluxDB server or a write fails with a server error    |
 | Write Error     | Fires when a batch write returns a non-2xx response from InfluxDB                             |
-| Buffer Full     | Fires when the write buffer reaches the configured **Max Buffer Size**                        |
+| Buffer Full     | Fires when the driver starts dropping unsent points, and again only after delivery resumes    |
 | Extended Outage | Fires when the driver has been disconnected longer than the **Outage Notification Threshold** |
 
 ## Variables
@@ -319,6 +325,14 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Fixed
 
+- Fixed the driver holding far more unsent data in memory than it should during
+  an InfluxDB outage. It now holds at most 8 MB across all its measurements and
+  drops the oldest points from the largest first. Once delivery resumes, each
+  reading writes its current value again.
+- Fixed `Driver Status` reading `Connected`, and the `Disconnected` event not
+  firing, while writes failed because the server couldn't be reached.
+- Fixed the `Buffer Full` event firing for every point lost. It now fires once
+  each time points start being lost, and again only after delivery resumes.
 - Fixed a failing write retrying every 5 seconds indefinitely against a down or
   overloaded InfluxDB. Retries now climb the intended backoff ladder, from 5
   seconds up to 15 minutes, and reset once a write succeeds.

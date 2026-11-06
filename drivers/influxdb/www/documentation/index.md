@@ -335,6 +335,12 @@ measurements can override this value. Default is `1m`.
 
 #### Offline Buffer & Retry
 
+While InfluxDB can't be reached, the driver keeps unsent points in memory and
+sends them when it can. It holds up to 10,000 points per measurement and write
+interval and at most 8 MB across all of them, and then drops the oldest points
+from the largest first. Those 8 MB hold about 18 hours for 100 readings that all
+change every minute, and longer for readings that change less often.
+
 ##### Max Buffer Size
 
 Maximum number of data points to buffer when the InfluxDB server is unreachable.
@@ -380,9 +386,9 @@ Monitoring is Enabled.
 | Event           | Description                                                                                   |
 | --------------- | --------------------------------------------------------------------------------------------- |
 | Connected       | Fires when the driver successfully connects to the InfluxDB server                            |
-| Disconnected    | Fires when the driver loses connectivity to the InfluxDB server                               |
+| Disconnected    | Fires when the driver can't reach the InfluxDB server or a write fails with a server error    |
 | Write Error     | Fires when a batch write returns a non-2xx response from InfluxDB                             |
-| Buffer Full     | Fires when the write buffer reaches the configured **Max Buffer Size**                        |
+| Buffer Full     | Fires when the driver starts dropping unsent points, and again only after delivery resumes    |
 | Extended Outage | Fires when the driver has been disconnected longer than the **Outage Notification Threshold** |
 
 ## Variables

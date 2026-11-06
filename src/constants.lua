@@ -58,6 +58,12 @@ return {
   --- @type number
   MAX_BUFFER_BYTES = 1048576,
 
+  --- Line-protocol bytes the writer holds across all its buffers, in flight included. Past
+  --- this the largest buffer loses its oldest points. At about 75 B a point that's about
+  --- 110,000 points, about 18 hours for 100 readings that all change every minute.
+  --- @type number
+  MAX_WRITER_BUFFER_BYTES = 8388608,
+
   --- Exponential backoff schedule for reconnect and write retries (seconds).
   --- Sequence: 5s, 15s, 30s, 1m, 5m, 15m.
   --- @type number[]
