@@ -357,6 +357,8 @@ function InfluxWriter:_getMeasurementState(stateKey, measurementName, intervalSe
       -- Set when this buffer loses a point, until points reach the server again.
       evicted = false,
       timerName = nil,
+      -- Set while timerName is a retry's, which the interval tick leaves to run.
+      retrying = false,
       -- dedup scope -> field key -> last buffered value. Scoped per reading:
       -- readings share a buffer and would otherwise dedup against each other.
       lastValues = {},
@@ -701,8 +703,10 @@ function InfluxWriter:_flushMeasurement(stateKey)
         log:info("InfluxWriter: scheduling retry for '%s' in %ds", stateKey, delaySecs)
         local timerName = "InfluxWriter_" .. stateKey
         state.timerName = timerName
+        state.retrying = true
         SetTimer(timerName, delaySecs * 1000, function()
           state.timerName = nil
+          state.retrying = false
           self:_flushMeasurement(stateKey)
         end)
       else
@@ -723,32 +727,21 @@ function InfluxWriter:_flushMeasurement(stateKey)
     end)
 end
 
---- Force-flush all measurement buffers immediately.
+--- Force-flush all measurement buffers immediately, except those waiting out a
+--- retry: this runs on every interval tick, which would otherwise retry a server
+--- that is down once a tick.
 function InfluxWriter:forceFlushAll()
   log:info("InfluxWriter: force-flushing all measurements")
   for name, state in pairs(self._measurements) do
-    -- Cancel the armed timer so the flush below is not doubled.
-    if state.timerName then
-      CancelTimer(state.timerName)
-      state.timerName = nil
-    end
-    if #state.buffer > 0 then
-      self:_flushMeasurement(name)
-    end
-  end
-end
-
---- Force-flush a measurement's buffers immediately, across every interval it
---- has readings on.
---- @param measurementName string
-function InfluxWriter:forceFlush(measurementName)
-  for stateKey, state in pairs(self._measurements) do
-    if state.measurementName == measurementName then
+    if not state.retrying then
+      -- Cancel the armed timer so the flush below is not doubled.
       if state.timerName then
         CancelTimer(state.timerName)
         state.timerName = nil
       end
-      self:_flushMeasurement(stateKey)
+      if #state.buffer > 0 then
+        self:_flushMeasurement(name)
+      end
     end
   end
 end
@@ -768,6 +761,7 @@ function InfluxWriter:shutdown()
       CancelTimer(state.timerName)
       state.timerName = nil
     end
+    state.retrying = false
   end
 
   self:forceFlushAll()

@@ -34,6 +34,23 @@ local InfluxWriter = require("lib.influx_writer")
 local constants = require("constants")
 local realPostBatch = InfluxWriter.postBatch
 
+-- The last callback armed under each timer name, so a case can run a timer as it
+-- comes due without firing every other case's.
+local armedTimers = {}
+local commonSetTimer = SetTimer
+SetTimer = function(name, ms, fn, repeating) -- luacheck: ignore
+  armedTimers[name] = fn
+  return commonSetTimer(name, ms, fn, repeating)
+end
+
+--- Runs the timer armed under `name`, as the controller would when it came due.
+--- @param name string
+local function fireTimer(name)
+  local fn = assert(armedTimers[name], "no timer armed: " .. name)
+  CancelTimer(name)
+  fn()
+end
+
 --- Capture posted batches instead of hitting the network. Returns the log of
 --- batches and a function to settle the pending request.
 local function captureWrites()
@@ -240,8 +257,41 @@ case("a failed write clears in-flight so the retry can run", function()
   w:forceFlushAll()
   settle(pending, 1, false)
 
-  w:forceFlushAll()
+  fireTimer("InfluxWriter_m@60")
   T.eq("requeued batch is retried", #posts, 2)
+end)
+
+case("an interval tick leaves a retry to run", function()
+  local posts, pending = captureWrites()
+  local w = newWriter()
+
+  w:enqueue("m", {}, { v = field(1) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 1)
+  w:forceFlushAll()
+  settle(pending, 1, false)
+  w:enqueue("m", {}, { v = field(2) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 2)
+  for _ = 1, 5 do
+    w:forceFlushAll()
+  end
+  T.eq("the ticks send nothing while it waits", #posts, 1)
+  T.truthy("and the retry is still armed", w._measurements["m@60"].timerName ~= nil)
+
+  fireTimer("InfluxWriter_m@60")
+  T.eq("the retry sends both points", #posts[2], 2)
+  settle(pending, 2)
+  w:enqueue("m", {}, { v = field(3) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 3)
+  w:forceFlushAll()
+  T.eq("once delivered, a tick sends at once again", #posts, 3)
+end)
+
+case("shutdown still sends a buffer waiting on a retry", function()
+  local posts, pending = captureWrites()
+  local w = newWriter()
+
+  w:enqueue("m", {}, { v = field(1) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 1)
+  w:forceFlushAll()
+  settle(pending, 1, false)
+  w:shutdown()
+  T.eq("the last flush tries it", #posts, 2)
 end)
 
 T.section("Removal")
@@ -314,16 +364,20 @@ case("retriable failures walk the backoff ladder and reset on success", function
   end
 
   local seq = 0
-  local function failOnce()
+  local function failOnce(retry)
     seq = seq + 1
     w:enqueue("m", {}, { v = field(seq) }, { interval = 60, dedup = false, dedupKey = "m::a" }, seq)
-    w:forceFlushAll()
+    if retry then
+      fireTimer("InfluxWriter_m@60")
+    else
+      w:forceFlushAll()
+    end
     settle(pending, #pending, false)
   end
 
-  failOnce()
-  failOnce()
-  failOnce()
+  failOnce(false)
+  failOnce(true)
+  failOnce(true)
   SetTimer = origSetTimer -- luacheck: ignore
 
   -- constants.RETRY_INTERVALS = { 5, 15, 30, 60, 300, 900 }; every failure used
@@ -338,7 +392,7 @@ case("retriable failures walk the backoff ladder and reset on success", function
     return origSetTimer(name, ms, fn)
   end
   w:enqueue("m", {}, { v = field(99) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 99)
-  w:forceFlushAll()
+  fireTimer("InfluxWriter_m@60")
   settle(pending, #pending, true)
   w:enqueue("m", {}, { v = field(100) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 100)
   w:forceFlushAll()
@@ -794,9 +848,7 @@ case("a failed batch still counts, and its retry's delivery clears it", function
   settle(pending, 1, false)
   T.eq("restored, it still counts", w._heldBytes, bytes)
   T.eq("the buffer's count has it back", w._measurements["m@60"].bufferBytes, bytes)
-  CancelTimer(w._measurements["m@60"].timerName)
-  w._measurements["m@60"].timerName = nil
-  w:forceFlushAll()
+  fireTimer("InfluxWriter_m@60")
   settle(pending, 2)
   T.eq("delivered, nothing counts", w._heldBytes, 0)
 end)
@@ -900,9 +952,7 @@ case("a failure that may clear reports disconnected, and delivery reports connec
   w:forceFlushAll()
   settle(pending, 1, false)
   T.eq("disconnected", seen, { false })
-  CancelTimer(w._measurements["m@60"].timerName)
-  w._measurements["m@60"].timerName = nil
-  w:forceFlushAll()
+  fireTimer("InfluxWriter_m@60")
   settle(pending, 2)
   T.eq("then connected", seen, { false, true })
 end)
