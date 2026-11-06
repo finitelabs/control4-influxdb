@@ -8,6 +8,7 @@ local http = require("lib.http")
 local constants = require("constants")
 
 require("drivers-common-public.global.handlers")
+require("drivers-common-public.global.timer")
 
 ---------------------------------------------------------------------------
 -- Module
@@ -19,15 +20,17 @@ require("drivers-common-public.global.handlers")
 --- @field database string Database/bucket name.
 --- @field precision string Write precision (ns, us, ms, s).
 --- @field writeInterval number Default write interval in seconds.
---- @field maxBufferPoints number Max offline buffer capacity.
---- @field maxBufferBytes number Max offline buffer size in bytes.
 --- @field outageThreshold number Outage notification threshold in seconds.
 
 --- @class InfluxClient
 --- @field _config InfluxConfig
 --- @field _connected boolean
+--- @field _outageArmed boolean
+--- @field _outageFired boolean
 local InfluxClient = {}
 InfluxClient.__index = InfluxClient
+
+local OUTAGE_TIMER = "InfluxExtendedOutage"
 
 --- Create a new InfluxClient instance.
 --- @param opts? table `isRunning`: function() -> bool; while false, no status reaches Driver Status or its events.
@@ -44,11 +47,11 @@ function InfluxClient:new(opts)
     database = "",
     precision = constants.DEFAULT_PRECISION,
     writeInterval = constants.DEFAULT_WRITE_INTERVAL,
-    maxBufferPoints = constants.MAX_BUFFER_SIZE,
-    maxBufferBytes = constants.MAX_BUFFER_BYTES,
     outageThreshold = constants.DEFAULT_OUTAGE_THRESHOLD,
   }
   instance._connected = false
+  instance._outageArmed = false
+  instance._outageFired = false
   return instance
 end
 
@@ -146,6 +149,12 @@ function InfluxClient:updateConnectionStatus(connected, status)
   local statusText = status or (connected and "Connected" or "Disconnected")
   UpdateProperty("Driver Status", statusText)
 
+  if connected then
+    CancelTimer(OUTAGE_TIMER)
+    self._outageArmed = false
+    self._outageFired = false
+  end
+
   if changed then
     -- Update the XML-defined conditional test function
     TC.INFLUXDB_CONNECTED = function()
@@ -157,6 +166,27 @@ function InfluxClient:updateConnectionStatus(connected, status)
       C4:FireEvent("Disconnected")
     end
   end
+end
+
+--- Report that a write or a connection test failed. Unlike a status such as
+--- "Not configured", this starts the outage clock: Extended Outage fires once,
+--- if nothing gets through for the Outage Notification Threshold.
+--- @param status string|nil Optional status text override.
+function InfluxClient:reportFailure(status)
+  self:updateConnectionStatus(false, status)
+  if self._outageArmed or self._outageFired then
+    return
+  end
+  self._outageArmed = true
+  SetTimer(OUTAGE_TIMER, self._config.outageThreshold * 1000, function()
+    self._outageArmed = false
+    if not self._isRunning() then
+      return
+    end
+    self._outageFired = true
+    log:warn("InfluxDB unreachable for %ds; firing Extended Outage", self._config.outageThreshold)
+    C4:FireEvent("Extended Outage")
+  end)
 end
 
 --- Test connectivity to InfluxDB by probing the write endpoint.
@@ -197,7 +227,7 @@ function InfluxClient:testConnection()
     else
       local statusMsg = err.code and string.format("HTTP %d", err.code) or ("Error: " .. (err.error or "unknown"))
       log:error("Connection test failed: %s", err.error or "unknown")
-      self:updateConnectionStatus(false, statusMsg)
+      self:reportFailure(statusMsg)
     end
   end)
 end

@@ -625,7 +625,7 @@ var PROP_GROUPS = {
   'Cloud': ['Automatic Updates', 'Update Channel'],
   'Driver': ['Log Level', 'Log Mode'],
   'InfluxDB Connection': ['InfluxDB URL', 'API Token', 'Database', 'Write Precision', 'Default Write Interval'],
-  'Buffer & Retry': ['Max Buffer Size', 'Outage Notification Threshold', 'Offline Buffer Size']
+  'Buffer & Retry': ['Outage Notification Threshold']
 };
 
 async function loadProperties() {
@@ -658,7 +658,7 @@ function renderProperties() {
   }
 
   // Hide status-only properties that are shown in Status tab
-  var hideProps = {'Driver Status':1, 'Driver Version':1, 'Offline Buffer Size':1};
+  var hideProps = {'Driver Status':1, 'Driver Version':1};
 
   // Render any remaining ungrouped properties
   var remaining = '';

@@ -206,12 +206,6 @@
         <default>Offline Buffer &amp; Retry</default>
       </property>
       <property>
-        <name>Max Buffer Size</name>
-        <type>STRING</type>
-        <default>10000</default>
-        <description>Maximum number of points to buffer when offline (default: 10000)</description>
-      </property>
-      <property>
         <name>Outage Notification Threshold</name>
         <type>LIST</type>
         <default>5m</default>
@@ -224,13 +218,6 @@
         </items>
         <description>Fire Extended Outage event after this duration offline</description>
       </property>
-      <property>
-        <name>Offline Buffer Size</name>
-        <type>STRING</type>
-        <default/>
-        <readonly>true</readonly>
-        <description>Current number of points in the offline buffer</description>
-      </property>
     </properties>
     <tabs>
       <tab name="Settings" file="html/index.html"/>
@@ -242,10 +229,6 @@
         <command>Update_Drivers</command>
       </action>
       <!-- #endif -->
-      <action>
-        <name>Clear Offline Buffer</name>
-        <command>ClearOfflineBuffer</command>
-      </action>
       <!-- #ifdef DRIVERCENTRAL -->
       <action>
         <name>Diagnostics Snapshot</name>

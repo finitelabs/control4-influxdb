@@ -18,7 +18,6 @@ local diagnostics = require("lib.diagnostics")
 local githubUpdater = require("lib.github-updater")
 --#endif
 local constants = require("constants")
-local OfflineBuffer = require("lib.offline_buffer")
 local InfluxWriter = require("lib.influx_writer")
 local SubscriptionEngine = require("lib.subscriptions")
 local MeasurementManager = require("lib.measurements")
@@ -47,14 +46,6 @@ end
 --- InfluxDB connection client.
 --- @type InfluxClient
 local influxClient = InfluxClient:new({ isRunning = running })
-
---- Whether a drain cycle is currently in flight (waiting for HTTP callback).
---- @type boolean
-local drainInFlight = false
-
---- Offline buffer instance for retry and persistence (initialized in OnDriverLateInit).
---- @type OfflineBuffer?
-local offlineBuffer
 
 --- Measurement manager instance (initialized in OnDriverLateInit).
 --- @type MeasurementManager?
@@ -93,62 +84,6 @@ local function checkConnection()
   end
 end
 
---- Handle an offline-buffer state change (called from OfflineBuffer callbacks).
---- @param state string One of "Connected", "Disconnected", "Reconnecting"
-local function onBufferStateChange(state)
-  if state == OfflineBuffer.State.CONNECTED then
-    influxClient:updateConnectionStatus(true)
-    if offlineBuffer then
-      UpdateProperty("Offline Buffer Size", tostring(offlineBuffer:size()))
-    end
-  elseif state == OfflineBuffer.State.RECONNECTING then
-    influxClient:updateConnectionStatus(false, "Reconnecting...")
-  else
-    influxClient:updateConnectionStatus(false, "Disconnected")
-  end
-end
-
---- Handle extended-outage notification from the offline buffer.
-local function onOutageThreshold()
-  log:warn("Extended InfluxDB outage — firing Extended Outage event")
-  C4:FireEvent("Extended Outage")
-end
-
---- Drain callback registered with the offline buffer.
---- Called when the buffer decides it's time to attempt delivery.
---- Uses the Deferred-based InfluxWriter.postBatch() for consistent async patterns.
---- @param points string[] Points to send (the full buffer contents).
-local function drainOfflineBuffer(points)
-  if not running() then
-    return
-  end
-  if drainInFlight then
-    log:debug("Drain already in flight, skipping")
-    return
-  end
-
-  local url = influxClient:getWriteUrl()
-  if not url then
-    return
-  end
-
-  local cfg = influxClient:getConfig()
-  local count = math.min(#points, constants.MAX_BATCH_SIZE)
-  local batch = {}
-  for i = 1, count do
-    batch[i] = points[i]
-  end
-
-  drainInFlight = true
-  InfluxWriter.postBatch(url, cfg.token, batch):next(function()
-    drainInFlight = false
-    offlineBuffer:onDrainResult(true, count, false)
-  end, function(err)
-    drainInFlight = false
-    offlineBuffer:onDrainResult(false, 0, err.retriable)
-  end)
-end
-
 --- Initialize the InfluxWriter batch engine.
 local function initInfluxWriter()
   influxWriter = InfluxWriter:new({
@@ -162,7 +97,11 @@ local function initInfluxWriter()
       }
     end,
     onConnected = function(connected)
-      influxClient:updateConnectionStatus(connected)
+      if connected then
+        influxClient:updateConnectionStatus(true)
+      else
+        influxClient:reportFailure()
+      end
     end,
     onWriteError = function(errMsg)
       log:error("InfluxWriter error: %s", errMsg or "unknown")
@@ -207,18 +146,6 @@ function OPC.Log_Level(propertyValue)
 end
 
 --- @param propertyValue string
-function OPC.Max_Buffer_Size(propertyValue)
-  log:trace("OPC.Max_Buffer_Size('%s')", propertyValue)
-  local n = tonumber(propertyValue)
-  if n and n > 0 then
-    influxClient:configure({ maxBufferPoints = n })
-    if offlineBuffer then
-      offlineBuffer:configure({ max_points = n })
-    end
-  end
-end
-
---- @param propertyValue string
 function OPC.Outage_Notification_Threshold(propertyValue)
   log:trace("OPC.Outage_Notification_Threshold('%s')", propertyValue)
   local secs = constants.OUTAGE_THRESHOLDS[propertyValue]
@@ -227,9 +154,6 @@ function OPC.Outage_Notification_Threshold(propertyValue)
   end
   if secs and secs > 0 then
     influxClient:configure({ outageThreshold = secs })
-    if offlineBuffer then
-      offlineBuffer:configure({ outage_threshold = secs })
-    end
   end
 end
 
@@ -790,14 +714,6 @@ function EC.Update_Drivers()
 end
 --#endif
 
---- Clear offline buffer action handler.
-function EC.ClearOfflineBuffer()
-  log:info("Action: Clear Offline Buffer")
-  if offlineBuffer then
-    offlineBuffer:clear()
-  end
-end
-
 --- An update setting changed on another item.
 function EC.SET_UPDATE_SETTING(params)
   log:trace("EC.SET_UPDATE_SETTING(%s)", params)
@@ -873,7 +789,6 @@ function OnDriverLateInit()
 
   -- Load config from properties
   local intervalStr = Properties["Default Write Interval"] or "1m"
-  local maxBufStr = Properties["Max Buffer Size"]
   local outageStr = Properties["Outage Notification Threshold"] or "5m"
   local outageSecs = constants.OUTAGE_THRESHOLDS[outageStr]
 
@@ -883,23 +798,8 @@ function OnDriverLateInit()
     database = Properties["Database"] or "",
     precision = Properties["Write Precision"] or constants.DEFAULT_PRECISION,
     writeInterval = constants.WRITE_INTERVALS[intervalStr] or constants.DEFAULT_WRITE_INTERVAL,
-    maxBufferPoints = tonumber(maxBufStr) or constants.MAX_BUFFER_SIZE,
     outageThreshold = outageSecs or tonumber(outageStr) or constants.DEFAULT_OUTAGE_THRESHOLD,
   })
-
-  -- Initialize offline buffer
-  local cfg = influxClient:getConfig()
-  offlineBuffer = OfflineBuffer:new({
-    max_points = cfg.maxBufferPoints,
-    max_bytes = cfg.maxBufferBytes,
-    outage_threshold = cfg.outageThreshold,
-  })
-  offlineBuffer:setCallbacks(drainOfflineBuffer, onBufferStateChange, onOutageThreshold)
-
-  local bufferedCount = offlineBuffer:size()
-  if bufferedCount > 0 then
-    log:info("Resuming: %d point(s) in offline buffer from previous session", bufferedCount)
-  end
 
   -- Initialize measurement manager (loads from persist)
   measManager = MeasurementManager:new()
@@ -930,14 +830,9 @@ function OnDriverLateInit()
       checkConnection()
       -- Points that waited in the writer's buffers go out now, or at their retry if one is pending.
       influxWriter:forceFlushAll()
-      if offlineBuffer:size() > 0 then
-        offlineBuffer:triggerDrain()
-      end
     else
       log:warn("No active license; collecting and writing nothing")
       subEngine:restartIntervalTimers()
-      -- Cancels the retry timer; buffered points wait for a license.
-      offlineBuffer:destroy()
       UpdateProperty("Driver Status", drivercentral.UNLICENSED_STATUS)
     end
   end)
@@ -984,12 +879,6 @@ function OnDriverDestroyed()
   -- Shut down the InfluxWriter batch engine (flushes all per-measurement buffers)
   if influxWriter then
     influxWriter:shutdown()
-  end
-
-  -- Destroy offline buffer (cancels retry timers)
-  if offlineBuffer then
-    offlineBuffer:destroy()
-    offlineBuffer = nil
   end
 end
 
