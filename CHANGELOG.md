@@ -52,8 +52,8 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   each time points start being lost, and again only after delivery resumes.
 - Fixed writes for a measurement stopping until the driver was reloaded when a
   request to InfluxDB never got an answer. The driver now sends those points
-  again after a few minutes, and the new `INFLUX_WATCHDOG_FIRES` variable counts
-  each time.
+  again after five write intervals, at least 5 minutes, and the new
+  `INFLUX_WATCHDOG_FIRES` variable counts each time.
 - Fixed a logged variable whose value isn't a finite number being written as a
   wrong number, or making InfluxDB refuse the other points sent with it. That
   value is now left out and the rest of the reading is written.
