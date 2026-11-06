@@ -442,7 +442,8 @@ function api(method, path, body) {
 function sendCommand(cmd, params) {
   return api('POST', '/api/v1/items/' + gDriverId + '/commands', {
     command: cmd,
-    tParams: { DATA: btoa(JSON.stringify(params || {})) },
+    // UTF-8, since btoa takes only Latin-1.
+    tParams: { DATA: btoa(unescape(encodeURIComponent(JSON.stringify(params || {})))) },
     async: false
   });
 }
@@ -453,7 +454,8 @@ function getProperties() { return api('GET', '/api/v1/items/' + gDriverId + '/pr
 // Set a property value
 function setProperty(name, value) {
   var props = {};
-  props[name] = value;
+  // Director reads this as XML: a raw < loses the change, while the reply still says updated.
+  props[name] = String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;');
   return api('POST', '/api/v1/items/' + gDriverId + '/properties', { properties: props });
 }
 
@@ -537,7 +539,6 @@ function handleDriverData(cmd, params) {
   try {
     if (cmd === 'CONFIG_DATA') onConfigLoaded(JSON.parse(params.config || '{}'));
     else if (cmd === 'STATUS_DATA') onStatusLoaded(JSON.parse(params.status || '{}'));
-    else if (cmd === 'SETTINGS_DATA') onSettingsLoaded(JSON.parse(params.settings || '{}'));
     else if (cmd === 'DEVICES_DATA') onDevicesLoaded(JSON.parse(params.devices || '[]'));
     else if (cmd === 'DEVICE_VARIABLES_DATA') onDeviceVariablesLoaded(params.deviceId, JSON.parse(params.variables || '[]'));
     else if (cmd === 'TRANSFORM_RESULT') {
@@ -698,9 +699,6 @@ function renderProperty(p) {
 function onPropertyChange(name, value) {
   setProperty(name, value);
 }
-
-// Also update status when settings data arrives
-function onSettingsLoaded(s) { /* handled by properties now */ }
 
 // ============================================================
 // Status
@@ -1224,7 +1222,8 @@ function resolveCurrentValue(mapping) {
 // computed to 0 rendered as a bare "=" with nothing after it.
 function str(s) { return (s === null || s === undefined) ? '' : String(s); }
 function esc(s) { return str(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-function escId(s) { return str(s).replace(/[^a-zA-Z0-9_]/g,'_'); }
+// Unique per name and never holding __, since an id joins two of these and splits on __.
+function escId(s) { return str(s).replace(/[^a-zA-Z0-9]/g,function(c){return '_'+('000'+c.charCodeAt(0).toString(16)).slice(-4);}); }
 function unescId(id) {
   if (!gEditingMeas || !gConfig[gEditingMeas]) return id;
   var m = gConfig[gEditingMeas];

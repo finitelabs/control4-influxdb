@@ -333,6 +333,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   firing, while writes failed because the server couldn't be reached.
 - Fixed the `Buffer Full` event firing for every point lost. It now fires once
   each time points start being lost, and again only after delivery resumes.
+- Fixed saving text in the Settings tab. A character outside Western European
+  alphabets made the save do nothing, and an accented letter was stored wrongly.
+  A reading or field named that way now keeps its own mappings, and a property
+  holding `<` now saves.
 - Fixed a failing write retrying every 5 seconds indefinitely against a down or
   overloaded InfluxDB. Retries now climb the intended backoff ladder, from 5
   seconds up to 15 minutes, and reset once a write succeeds.
