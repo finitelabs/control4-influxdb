@@ -538,7 +538,6 @@ function handleDriverData(cmd, params) {
   try {
     if (cmd === 'CONFIG_DATA') onConfigLoaded(JSON.parse(params.config || '{}'));
     else if (cmd === 'STATUS_DATA') onStatusLoaded(JSON.parse(params.status || '{}'));
-    else if (cmd === 'SETTINGS_DATA') onSettingsLoaded(JSON.parse(params.settings || '{}'));
     else if (cmd === 'DEVICES_DATA') onDevicesLoaded(JSON.parse(params.devices || '[]'));
     else if (cmd === 'DEVICE_VARIABLES_DATA') onDeviceVariablesLoaded(params.deviceId, JSON.parse(params.variables || '[]'));
     else if (cmd === 'TRANSFORM_RESULT') {
@@ -701,7 +700,6 @@ function onPropertyChange(name, value) {
 }
 
 // Also update status when settings data arrives
-function onSettingsLoaded(s) { /* handled by properties now */ }
 
 // ============================================================
 // Status
