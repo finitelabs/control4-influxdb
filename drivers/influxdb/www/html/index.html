@@ -442,7 +442,8 @@ function api(method, path, body) {
 function sendCommand(cmd, params) {
   return api('POST', '/api/v1/items/' + gDriverId + '/commands', {
     command: cmd,
-    tParams: { DATA: btoa(JSON.stringify(params || {})) },
+    // UTF-8, since btoa takes only Latin-1.
+    tParams: { DATA: btoa(unescape(encodeURIComponent(JSON.stringify(params || {})))) },
     async: false
   });
 }
