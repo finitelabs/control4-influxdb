@@ -320,7 +320,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
-## Unreleased
+## v20261106 - 2026-11-06
 
 ### Fixed
 
@@ -328,25 +328,30 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   an InfluxDB outage. It now holds at most 8 MB across all its measurements and
   drops the oldest points from the largest first. Once delivery resumes, each
   reading writes its current value again.
+- Fixed a failing write being sent again every 5 seconds for as long as InfluxDB
+  was down or overloaded. Retries now wait longer each time, up to 15 minutes,
+  and start over once a write succeeds, so points can reach InfluxDB up to 15
+  minutes after it's back.
 - Fixed `Driver Status` reading `Connected`, and the `Disconnected` event not
   firing, while writes failed because the server couldn't be reached.
+- Fixed the `Extended Outage` event never firing. It now fires once writes to
+  InfluxDB have failed for the `Outage Notification Threshold`, once per outage.
 - Fixed the `Buffer Full` event firing for every point lost. It now fires once
   each time points start being lost, and again only after delivery resumes.
+- Fixed writes for a measurement stopping until the driver was reloaded when a
+  request to InfluxDB never got an answer. The driver now sends those points
+  again after five write intervals, at least 5 minutes, and the new
+  `INFLUX_WATCHDOG_FIRES` variable counts each time.
+- Fixed a logged variable whose value isn't a finite number being written as a
+  wrong number, or making InfluxDB refuse the other points sent with it. That
+  value is now left out and the rest of the reading is written.
 - Fixed saving text in the Settings tab. A character outside Western European
   alphabets made the save do nothing, and an accented letter was stored wrongly.
   A reading or field named that way now keeps its own mappings, and a property
   holding `<` now saves.
-- Fixed a failing write retrying every 5 seconds indefinitely against a down or
-  overloaded InfluxDB. Retries now climb the intended backoff ladder, from 5
-  seconds up to 15 minutes, and reset once a write succeeds.
-- Fixed a lost HTTP response silently stopping all writes for a measurement
-  until the driver was reloaded, its buffer filling and then dropping points. A
-  watchdog now clears a flush left stuck in flight, re-queues its points,
-  resumes writing, and counts each recovery in a new metric.
-- Fixed a buffer flush being re-armed while the driver was shutting down, so a
-  timer could fire into a driver that was already being removed or reloaded.
-- Fixed the `Extended Outage` event never firing. It now fires once writes to
-  InfluxDB have failed for the `Outage Notification Threshold`, once per outage.
+- Fixed changing Automatic Updates or Update Channel on an InfluxDB driver
+  briefly holding up every other InfluxDB driver, longer in a project with many,
+  while the change was copied to them.
 
 ### Removed
 
