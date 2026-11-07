@@ -27,6 +27,7 @@ require("drivers-common-public.global.timer")
 --- @field _connected boolean
 --- @field _outageArmed boolean
 --- @field _outageFired boolean
+--- @field _onReachable fun()
 local InfluxClient = {}
 InfluxClient.__index = InfluxClient
 
@@ -34,6 +35,7 @@ local OUTAGE_TIMER = "InfluxExtendedOutage"
 
 --- Create a new InfluxClient instance.
 --- @param opts? table `isRunning`: function() -> bool; while false, no status reaches Driver Status or its events.
+---   `onReachable`: function(), called when a connection test gets through.
 --- @return InfluxClient
 function InfluxClient:new(opts)
   log:trace("InfluxClient:new()")
@@ -41,6 +43,7 @@ function InfluxClient:new(opts)
   instance._isRunning = (opts and opts.isRunning) or function()
     return true
   end
+  instance._onReachable = (opts and opts.onReachable) or function() end
   instance._config = {
     url = "",
     token = "",
@@ -219,11 +222,13 @@ function InfluxClient:testConnection()
   http:post(writeUrl, "", self:getHeaders()):next(function(response)
     log:info("Connection test successful (HTTP %d)", response.code)
     self:updateConnectionStatus(true, "Connected")
+    self._onReachable()
   end, function(err)
     -- 400/422 means the server received our request and auth passed — just no valid data
     if err.code == 400 or err.code == 422 or err.code == 204 then
       log:info("Connection test successful (auth OK, HTTP %d)", err.code)
       self:updateConnectionStatus(true, "Connected")
+      self._onReachable()
     else
       local statusMsg = err.code and string.format("HTTP %d", err.code) or ("Error: " .. (err.error or "unknown"))
       log:error("Connection test failed: %s", err.error or "unknown")
