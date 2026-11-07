@@ -58,6 +58,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Fixed a logged variable whose value isn't a finite number being written as a
   wrong number, or making InfluxDB refuse the other points sent with it. That
   value is now left out and the rest of the reading is written.
+- Fixed every point being written at the wrong time when `Write Precision` was
+  set to anything but `ms`: thousands of years ahead with `s`, and in January
+  1970 with `us` or `ns`.
 - Fixed saving text in the Settings tab. A character outside Western European
   alphabets made the save do nothing, and an accented letter was stored wrongly.
   A reading or field named that way now keeps its own mappings, and a property

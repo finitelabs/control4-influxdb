@@ -176,6 +176,28 @@ function InfluxWriter.buildLine(measurement, tags, fields, timestampMs)
   return line
 end
 
+--- Rewrite a line's timestamp, which a buffer keeps in milliseconds, in the unit
+--- `precision` names: a flush sends the setting in force when it runs, so points
+--- buffered before the setting changed are converted too.
+--- @param line string
+--- @param precision string ns, us, ms or s
+--- @return string
+local function inPrecision(line, precision)
+  -- Only a timestamp is all digits after the line's last space: a field set has an `=`,
+  -- and a string value ends in a quote.
+  local head, ms = line:match("^(.* )(%d+)$")
+  if not ms then
+    return line
+  elseif precision == "s" then
+    return head .. (#ms > 3 and ms:sub(1, -4) or "0")
+  elseif precision == "us" then
+    return head .. ms .. "000"
+  elseif precision == "ns" then
+    return head .. ms .. "000000"
+  end
+  return line
+end
+
 ---------------------------------------------------------------------------
 -- HTTP Write Client
 ---------------------------------------------------------------------------
@@ -610,12 +632,8 @@ function InfluxWriter:_flushMeasurement(stateKey)
   end
 
   local base = cfg.url:gsub("/$", "")
-  local url = string.format(
-    "%s/api/v2/write?bucket=%s&precision=%s",
-    base,
-    cfg.database,
-    cfg.precision or constants.DEFAULT_PRECISION
-  )
+  local precision = cfg.precision or constants.DEFAULT_PRECISION
+  local url = string.format("%s/api/v2/write?bucket=%s&precision=%s", base, cfg.database, precision)
 
   local batchSize = math.min(#state.buffer, constants.MAX_BATCH_SIZE)
   local batch = {}
@@ -643,7 +661,14 @@ function InfluxWriter:_flushMeasurement(stateKey)
 
   log:info("InfluxWriter: flushing %d points for '%s' (%d remaining)", batchSize, stateKey, #state.buffer)
 
-  InfluxWriter.postBatch(url, cfg.token or "", batch)
+  local sent = batch
+  if precision ~= "ms" then
+    sent = {}
+    for i, line in ipairs(batch) do
+      sent[i] = inPrecision(line, precision)
+    end
+  end
+  InfluxWriter.postBatch(url, cfg.token or "", sent)
     :next(function(result)
       if epoch ~= state.epoch then
         return -- superseded by a watchdog reissue; a lost request's late callback
