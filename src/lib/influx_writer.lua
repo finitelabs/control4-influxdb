@@ -755,11 +755,8 @@ function InfluxWriter:forceFlushAll()
   end
 end
 
---- Send every buffer waiting out a retry after an outage, once a write or a connection
---- test gets through: the rest of each wait would only hold points a server that is back
---- can take. Each buffer keeps its retry step and is cut short once until its own write
---- gets through, so one that fails again waits out its retries as before. A buffer the
---- server itself asked to wait keeps waiting.
+--- Send every buffer waiting out a retry, except one the server asked to wait or one
+--- already released this failure streak.
 function InfluxWriter:releaseRetries()
   for name, state in pairs(self._measurements) do
     if state.retrying and not state.heldByServer and not state.released then
