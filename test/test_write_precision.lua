@@ -105,4 +105,18 @@ do
   T.truthy("each in seconds", all(stamps, "1794076298"), table.concat(stamps, " "))
 end
 
+T.section("A write that fails, sent again under the same setting")
+do
+  setPrecision("s")
+  answer = { code = 0, err = "Connection refused" }
+  write()
+  T.eq("the write fails", Properties["Driver Status"], "Disconnected")
+  answer = { code = 204 }
+  local mark = #posted
+  write()
+  local stamps = sentSince(mark)
+  T.truthy("the points go out", #stamps > 1, #stamps)
+  T.truthy("still in seconds, converted once", all(stamps, "1794076298"), table.concat(stamps, " "))
+end
+
 T.finish()

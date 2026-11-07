@@ -186,7 +186,7 @@ local function inPrecision(line, precision)
   -- Only a timestamp is all digits after the line's last space: a field set has an `=`,
   -- and a string value ends in a quote.
   local head, ms = line:match("^(.* )(%d+)$")
-  if not ms or precision == "ms" then
+  if not ms then
     return line
   elseif precision == "s" then
     return head .. (#ms > 3 and ms:sub(1, -4) or "0")
