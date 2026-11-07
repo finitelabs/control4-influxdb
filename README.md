@@ -320,7 +320,7 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Removed
 -->
 
-## v20261106 - 2026-11-06
+## v20261107 - 2026-11-07
 
 ### Fixed
 
