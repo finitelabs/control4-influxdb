@@ -43,17 +43,24 @@ local function running()
   return ok
 end
 
+--- InfluxWriter batch engine instance (initialized in OnDriverLateInit).
+--- @type InfluxWriter?
+local influxWriter
+
 --- InfluxDB connection client.
 --- @type InfluxClient
-local influxClient = InfluxClient:new({ isRunning = running })
+local influxClient = InfluxClient:new({
+  isRunning = running,
+  onReachable = function()
+    if influxWriter then
+      influxWriter:releaseRetries()
+    end
+  end,
+})
 
 --- Measurement manager instance (initialized in OnDriverLateInit).
 --- @type MeasurementManager?
 local measManager
-
---- InfluxWriter batch engine instance (initialized in OnDriverLateInit).
---- @type InfluxWriter?
-local influxWriter
 
 --- Subscription engine instance (initialized in OnDriverLateInit).
 --- @type SubscriptionEngine?
@@ -828,7 +835,8 @@ function OnDriverLateInit()
       log:info("License active; collecting and writing again")
       subEngine:restartIntervalTimers()
       checkConnection()
-      -- Points that waited in the writer's buffers go out now, or at their retry if one is pending.
+      -- Points that waited in the writer's buffers go out now; a buffer waiting out a retry sends once the
+      -- connection test above gets through, or at its retry.
       influxWriter:forceFlushAll()
     else
       log:warn("No active license; collecting and writing nothing")

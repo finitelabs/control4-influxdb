@@ -241,10 +241,13 @@ measurements can override this value. Default is `1m`.
 While InfluxDB can't be reached, the driver keeps unsent points in memory and
 sends them when it can. It tries again 5 seconds after a write fails and waits
 longer each time, up to 15 minutes, so points can reach InfluxDB up to 15
-minutes after it's back. It holds up to 10,000 points per measurement and write
-interval and at most 8 MB across all of them, and then drops the oldest points
-from the largest first. Those 8 MB hold about 18 hours for 100 readings that all
-change every minute, and longer for readings that change less often.
+minutes after it's back. As soon as one write, or the connection test after a
+settings change, gets through, every measurement sends what it holds, unless
+InfluxDB asked the driver to wait. It holds up to 10,000 points per measurement
+and write interval and at most 8 MB across all of them, and then drops the
+oldest points from the largest first. Those 8 MB hold about 18 hours for 100
+readings that all change every minute, and longer for readings that change less
+often.
 
 ##### Outage Notification Threshold \[ 1m | **_5m_** | 15m | 30m | 1h \]
 
@@ -330,8 +333,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   reading writes its current value again.
 - Fixed a failing write being sent again every 5 seconds for as long as InfluxDB
   was down or overloaded. Retries now wait longer each time, up to 15 minutes,
-  and start over once a write succeeds, so points can reach InfluxDB up to 15
-  minutes after it's back.
+  so points can reach InfluxDB up to 15 minutes after it's back. As soon as one
+  write, or the connection test after a settings change, gets through, every
+  measurement sends what it holds, unless InfluxDB asked the driver to wait.
 - Fixed `Driver Status` reading `Connected`, and the `Disconnected` event not
   firing, while writes failed because the server couldn't be reached.
 - Fixed the `Extended Outage` event never firing. It now fires once writes to

@@ -42,8 +42,9 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   reading writes its current value again.
 - Fixed a failing write being sent again every 5 seconds for as long as InfluxDB
   was down or overloaded. Retries now wait longer each time, up to 15 minutes,
-  and start over once a write succeeds, so points can reach InfluxDB up to 15
-  minutes after it's back.
+  so points can reach InfluxDB up to 15 minutes after it's back. As soon as one
+  write, or the connection test after a settings change, gets through, every
+  measurement sends what it holds, unless InfluxDB asked the driver to wait.
 - Fixed `Driver Status` reading `Connected`, and the `Disconnected` event not
   firing, while writes failed because the server couldn't be reached.
 - Fixed the `Extended Outage` event never firing. It now fires once writes to

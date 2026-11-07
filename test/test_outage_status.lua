@@ -136,10 +136,11 @@ do
   answer = { code = 0, err = "Connection refused" }
   write()
   T.eq("the clock starts", #outageDelays, 3)
-  -- The connection test answers, so this reports connected before the clock runs out.
+  -- The server answers again, and the connection test after a settings change reports connected before the clock
+  -- runs out.
+  answer = { code = 204 }
   OnPropertyChanged("Database")
   T.eq("the test gets through", Properties["Driver Status"], "Connected")
-  answer = { code = 204 }
   ShimFireTimers()
   T.eq("Extended Outage doesn't fire", count("Extended Outage"), 0)
 end

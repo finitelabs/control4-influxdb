@@ -359,6 +359,12 @@ function InfluxWriter:_getMeasurementState(stateKey, measurementName, intervalSe
       timerName = nil,
       -- Set while timerName is a retry's, which the interval tick leaves to run.
       retrying = false,
+      -- Set while that retry waits because the server asked it to (rate limited), so
+      -- a write getting through elsewhere does not cut the wait short.
+      heldByServer = false,
+      -- Set once a retry was cut short, until this buffer's own write gets through, so
+      -- a server refusing only this buffer is not tried again after every other write.
+      released = false,
       -- dedup scope -> field key -> last buffered value. Scoped per reading:
       -- readings share a buffer and would otherwise dedup against each other.
       lastValues = {},
@@ -645,6 +651,7 @@ function InfluxWriter:_flushMeasurement(stateKey)
       state.inFlight = false
       state.inFlightBatch = nil
       state.retryIndex = 1
+      state.released = false
       self._heldBytes = self._heldBytes - state.inFlightBytes
       state.inFlightBytes = 0
       self._bufferFullFired = false
@@ -661,6 +668,7 @@ function InfluxWriter:_flushMeasurement(stateKey)
       if self._onConnected then
         pcall(self._onConnected, true)
       end
+      self:releaseRetries()
 
       -- Left by a MAX_BATCH_SIZE cap or enqueued mid-request.
       if #state.buffer > 0 then
@@ -704,6 +712,7 @@ function InfluxWriter:_flushMeasurement(stateKey)
         local timerName = "InfluxWriter_" .. stateKey
         state.timerName = timerName
         state.retrying = true
+        state.heldByServer = err.reachable == true
         SetTimer(timerName, delaySecs * 1000, function()
           state.timerName = nil
           state.retrying = false
@@ -742,6 +751,20 @@ function InfluxWriter:forceFlushAll()
       if #state.buffer > 0 then
         self:_flushMeasurement(name)
       end
+    end
+  end
+end
+
+--- Send every buffer waiting out a retry, except one the server asked to wait or one
+--- already released this failure streak.
+function InfluxWriter:releaseRetries()
+  for name, state in pairs(self._measurements) do
+    if state.retrying and not state.heldByServer and not state.released then
+      CancelTimer(state.timerName)
+      state.timerName = nil
+      state.retrying = false
+      state.released = true
+      self:_flushMeasurement(name)
     end
   end
 end
