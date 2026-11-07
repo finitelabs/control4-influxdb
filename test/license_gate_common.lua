@@ -101,6 +101,22 @@ function M.boot(answer, pid)
   return posts
 end
 
+--- Loads the driver again after a Director restart: no variable survives, and its modules start fresh over what
+--- they stored.
+--- @param pid integer
+function M.restart(pid)
+  ShimRestartDirector()
+  for name in pairs(package.loaded) do
+    if name:match("^lib%.") or name == "constants" then
+      package.loaded[name] = nil
+    end
+  end
+  require("lib.drivercentral").PRODUCT_ID = pid
+  dofileDriverCentral(ROOT .. "drivers/influxdb/driver.lua")
+  OnDriverInit()
+  OnDriverLateInit("DIT_STARTUP")
+end
+
 --- Whether a write to InfluxDB landed in `posts` after `mark`.
 --- @param posts string[]
 --- @param mark integer

@@ -24,6 +24,7 @@ local MeasurementManager = require("lib.measurements")
 local InfluxClient = require("lib.influx_client")
 local transform = require("lib.transform")
 local agents = require("lib.agents")
+local values = require("lib.values")
 
 ---------------------------------------------------------------------------
 -- State
@@ -784,6 +785,9 @@ function OnDriverInit()
   log:setLogLevel(Properties["Log Level"])
   log:setLogMode(Properties["Log Mode"])
   log:trace("OnDriverInit()")
+
+  -- Restore persisted state
+  values:restoreValues()
 end
 
 function OnDriverLateInit()
