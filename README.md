@@ -325,12 +325,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
-### Changed
-
-- Changed Log Level in the DriverCentral build to stop at 4 - Debug, and to
-  offer 5 - Trace and 6 - Ultra only while a Support Code from Finite Labs
-  support has the Lua tab open.
-
 ## v20261107 - 2026-11-07
 
 ### Fixed
