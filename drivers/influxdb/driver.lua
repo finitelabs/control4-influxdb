@@ -15,6 +15,7 @@ local supportCode = require("lib.support-code")
 local diagnostics = require("lib.diagnostics")
 --#endif
 --#ifndef DRIVERCENTRAL
+local driverFilenames = require("lib.driver-filenames")
 local githubUpdater = require("lib.github-updater")
 --#endif
 local constants = require("constants")
@@ -752,12 +753,7 @@ end
 function UpdateDrivers(forceUpdate)
   log:trace("UpdateDrivers(%s)", forceUpdate)
   githubUpdater
-    :updateAll(
-      DRIVER_GITHUB_REPO,
-      require("lib.driver-filenames"),
-      Properties["Update Channel"] == "Prerelease",
-      forceUpdate
-    )
+    :updateAll(DRIVER_GITHUB_REPO, driverFilenames, Properties["Update Channel"] == "Prerelease", forceUpdate)
     :next(function(updatedDrivers)
       if not IsEmpty(updatedDrivers) then
         log:info("Updated driver(s): %s", table.concat(updatedDrivers, ","))
@@ -855,10 +851,7 @@ function OnDriverLateInit()
 
   -- Fire OnPropertyChanged for all properties to ensure consistent state
   for p, _ in pairs(Properties) do
-    local status, err = pcall(OnPropertyChanged, p)
-    if not status then
-      log:error(tostring(err))
-    end
+    OnPropertyChanged(p)
   end
 
   gInitialized = true
