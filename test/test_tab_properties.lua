@@ -74,7 +74,11 @@ do
     names["InfluxDB URL"] and names["InfluxDB URL"].group,
     "InfluxDB Connection"
   )
-  T.eq("the outage threshold, under its label", names["Outage Notification Threshold"].group, "Offline Buffer & Retry")
+  T.eq(
+    "the outage threshold, under its label",
+    names["Outage Notification Threshold"].group,
+    "Offline Buffer and Retry"
+  )
   T.eq("API Token stays in Composer", names["API Token"], nil)
   T.excludes("and its value never reaches the tab's config", UIR._GET_CONFIG(), "throwaway")
   T.excludes("or its status", UIR._GET_STATUS(), "throwaway")
@@ -84,12 +88,25 @@ do
   T.truthy("Log Level offers the logger's levels", #(names["Log Level"].choices or {}) >= 4)
   local missing = {}
   for name, p in pairs(names) do
-    local own = p.group == "InfluxDB Connection" or p.group == "Offline Buffer & Retry"
+    local own = p.group == "InfluxDB Connection" or p.group == "Offline Buffer and Retry"
     if own and (not p.description or p.description == "" or #p.description > 80) then
       missing[#missing + 1] = name
     end
   end
   T.eq("every InfluxDB setting has a short description", missing, {})
+  -- Composer takes an & as a Windows accelerator and drops it from what it shows.
+  local fh = assert(io.open(ROOT .. "drivers/influxdb/driver.xml", "r"))
+  local xml = fh:read("*a")
+  fh:close()
+  local shown = {}
+  local SHOWN = { name = true, default = true, item = true, description = true, display_name = true }
+  SHOWN.true_text, SHOWN.false_text = true, true
+  for tag, text in xml:gmatch("<([%w_]+)>([^<]*&amp;[^<]*)</[%w_]+>") do
+    if SHOWN[tag] then
+      shown[#shown + 1] = text
+    end
+  end
+  T.eq("no text Composer shows holds an &", shown, {})
 end
 
 T.section("A change from the tab")

@@ -32,7 +32,7 @@ automatic offline buffering and retry.
       - [Cloud Settings](#cloud-settings)
       - [Driver Settings](#driver-settings)
       - [InfluxDB Settings](#influxdb-settings)
-      - [Offline Buffer & Retry](#offline-buffer--retry)
+      - [Offline Buffer and Retry](#offline-buffer-and-retry)
     - [Driver Actions](#driver-actions)
 
 - [Programming](#programming)
@@ -236,7 +236,7 @@ Timestamp precision for line protocol writes. Default is `ms`.
 How often the driver flushes buffered data points to InfluxDB. Individual
 measurements can override this value. Default is `1m`.
 
-#### Offline Buffer & Retry
+#### Offline Buffer and Retry
 
 While InfluxDB can't be reached, the driver keeps unsent points in memory and
 sends them when it can. It tries again 5 seconds after a write fails and waits
