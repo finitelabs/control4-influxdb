@@ -25,7 +25,8 @@ local MeasurementManager = require("lib.measurements")
 local InfluxClient = require("lib.influx_client")
 local transform = require("lib.transform")
 local agents = require("lib.agents")
-local tabProperties = require("lib.tab-properties")
+local pageParams = require("lib.ui.page-params")
+local tabProperties = require("lib.ui.tab-properties")
 local values = require("lib.values")
 
 ---------------------------------------------------------------------------
@@ -259,7 +260,7 @@ end
 --- @param tParams table
 function UIR._SET_PROPERTY(tParams)
   log:trace("UIR._SET_PROPERTY()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30=")) or {}
+  local params = pageParams(tParams) or {}
   local err = tabProperties:set(params.property, params.value)
   if err then
     return uiRespond("PROPERTY_ERROR", { payload = JSON:encode({ property = params.property, error = err }) })
@@ -420,7 +421,7 @@ end
 --- @param tParams table
 function UIR._GET_DEVICE_VARIABLES(tParams)
   log:trace("UIR.GET_DEVICE_VARIABLES()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   local devId = tonumber(params.deviceId)
   if not devId then
     return
@@ -485,7 +486,7 @@ end
 --- @param tParams table
 function UIR._EVAL_TRANSFORM(tParams)
   log:trace("UIR._EVAL_TRANSFORM()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   local expression = params.expression or ""
   local rawValue = params.value
   local result, err
@@ -527,7 +528,7 @@ end
 --- @param tParams table
 function UIR._ADD_MEASUREMENT(tParams)
   log:trace("UIR.ADD_MEASUREMENT()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.name then
     measManager:add(params.name)
   end
@@ -541,7 +542,7 @@ end
 --- @param tParams table
 function UIR._DELETE_MEASUREMENT(tParams)
   log:trace("UIR.DELETE_MEASUREMENT()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.name then
     measManager:remove(params.name, subEngine, influxWriter)
   end
@@ -555,7 +556,7 @@ end
 --- @param tParams table
 function UIR._ADD_FIELD_DEF(tParams)
   log:trace("UIR.ADD_FIELD_DEF()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.name then
     measManager:addFieldDef(params.measurement, params.name)
   end
@@ -569,7 +570,7 @@ end
 --- @param tParams table
 function UIR._REMOVE_FIELD_DEF(tParams)
   log:trace("UIR.REMOVE_FIELD_DEF()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.name then
     measManager:removeFieldDef(params.measurement, params.name, subEngine)
   end
@@ -583,7 +584,7 @@ end
 --- @param tParams table
 function UIR._SET_FIELD_TYPE(tParams)
   log:trace("UIR.SET_FIELD_TYPE()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.name then
     measManager:setFieldType(params.measurement, params.name, params.valueType)
   end
@@ -594,7 +595,7 @@ end
 --- @param tParams table
 function UIR._ADD_TAG_DEF(tParams)
   log:trace("UIR.ADD_TAG_DEF()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.name then
     measManager:addTagDef(params.measurement, params.name)
   end
@@ -608,7 +609,7 @@ end
 --- @param tParams table
 function UIR._REMOVE_TAG_DEF(tParams)
   log:trace("UIR.REMOVE_TAG_DEF()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.name then
     measManager:removeTagDef(params.measurement, params.name, subEngine)
   end
@@ -622,7 +623,7 @@ end
 --- @param tParams table
 function UIR._UPDATE_MEAS_SETTINGS(tParams)
   log:trace("UIR.UPDATE_MEAS_SETTINGS()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement then
     measManager:updateSettings(params.measurement, {
       interval = params.interval,
@@ -640,7 +641,7 @@ end
 --- @param tParams table
 function UIR._ADD_READING(tParams)
   log:trace("UIR.ADD_READING()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.label then
     measManager:addReading(params.measurement, params.label)
   end
@@ -654,7 +655,7 @@ end
 --- @param tParams table
 function UIR._REMOVE_READING(tParams)
   log:trace("UIR.REMOVE_READING()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.label then
     measManager:removeReading(params.measurement, params.label, subEngine, influxWriter)
   end
@@ -668,7 +669,7 @@ end
 --- @param tParams table
 function UIR._SAVE_MAPPING(tParams)
   log:trace("UIR.SAVE_MAPPING()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.reading and params.name and params.mapping then
     measManager:setMapping(params.measurement, params.reading, params.name, params.mapping, subEngine)
   end
@@ -682,7 +683,7 @@ end
 --- @param tParams table
 function UIR._UPDATE_READING_ENABLED(tParams)
   log:trace("UIR.UPDATE_READING_ENABLED()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.label then
     measManager:setReadingEnabled(params.measurement, params.label, params.enabled, subEngine)
   end
@@ -697,7 +698,7 @@ end
 --- @param tParams table
 function UIR._INCLUDE_DEVICE_TAGS(tParams)
   log:trace("UIR.INCLUDE_DEVICE_TAGS()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if not params.measurement or not params.deviceId then
     return UIR._GET_CONFIG()
   end

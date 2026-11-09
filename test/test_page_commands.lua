@@ -1,5 +1,5 @@
--- The web tab's commands: a page's own sendCommand line, run under node, reaches the driver's real handlers with
--- text in any language intact.
+-- The web tab's commands: lib/ui/page.js's encodeParams, run under node, reaches the driver's real handlers with
+-- text in any language intact, through the newlines it breaks the body with.
 --
 -- Run from the driver root:
 --   make test
@@ -25,6 +25,7 @@ local function readFile(path)
 end
 
 local page = readFile("drivers/influxdb/www/html/index.html")
+local kit = readFile("src/lib/ui/page.js")
 
 local function hasNode()
   local pipe = io.popen("command -v node 2>/dev/null")
@@ -33,11 +34,11 @@ local function hasNode()
   return found
 end
 
---- A command's parameters as the page's own sendCommand line encodes them, run under node.
+--- A command's parameters as the page's sendCommand encodes them (page.js's encodeParams), run under node.
 --- @param params table
 --- @return table tParams
 local function fromPage(params)
-  local expression = assert(page:match("DATA: (.-) },\n"), "no DATA line in the page")
+  local expression = assert(kit:match("function encodeParams%(params%) {\n  return (.-);\n}"), "no encodeParams")
   local path = os.tmpname()
   local file = assert(io.open(path, "w"))
   file:write("const params = ", JSON:encode(params), ";\nprocess.stdout.write(", expression, ");\n")
@@ -49,10 +50,14 @@ local function fromPage(params)
   return { DATA = data }
 end
 
-T.section("The page encodes UTF-8 first")
-T.check("its line does", page:find("btoa(unescape(encodeURIComponent(JSON.stringify(params || {}))))", 1, true) ~= nil)
+T.section("The page sends through lib/ui, which encodes UTF-8 first")
+T.check("the page embeds page.js", page:find("<!-- #embed ../../../../src/lib/ui/page.js -->", 1, true) ~= nil)
+T.check(
+  "which encodes UTF-8 first",
+  kit:find("btoa(unescape(encodeURIComponent(JSON.stringify(params || {}))))", 1, true) ~= nil
+)
 
-T.section("Text outside Latin-1, sent by the page's own line")
+T.section("Text outside Latin-1, sent through encodeParams")
 if hasNode() then
   local reading = fromPage({ measurement = "power", label = TEXT })
   T.check("the page encodes it", reading.DATA ~= "")
@@ -70,16 +75,16 @@ if hasNode() then
     T.eq("and so is a literal", stored and stored.mappings.watts.literal, TEXT)
   end
 else
-  print("SKIP: node not installed; the page's own line was not run")
+  print("SKIP: node not installed; encodeParams was not run")
 end
 
-T.section("A property set from the page, by the page's own line")
+T.section("A property set from the page, through encodeParams")
 if hasNode() then
   local reply = JSON:decode(UIR._SET_PROPERTY(fromPage({ property = "Database", value = TEXT })))
   T.eq("the driver answers with the config", reply._command, "CONFIG_DATA")
   T.eq("and the property holds the text exactly", Properties["Database"], TEXT)
 else
-  print("SKIP: node not installed; the page's own line was not run")
+  print("SKIP: node not installed; encodeParams was not run")
 end
 
 T.section("Names outside Latin-1 keep their own ids")

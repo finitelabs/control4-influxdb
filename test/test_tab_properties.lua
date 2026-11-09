@@ -1,6 +1,6 @@
 -- The Status tab's Properties card and status card, in the real driver: the properties the tab is sent, a change made
 -- from it, the changes it is turned away from, a change made in Composer reaching it, the status it shows, and the
--- tab bar that shows only with two or more tabs.
+-- page wired to lib/ui for its tab bar and Properties card.
 --
 -- Run from the driver root:
 --   make test
@@ -185,11 +185,14 @@ do
   local fh = assert(io.open(ROOT .. "drivers/influxdb/www/html/index.html", "r"))
   local page = fh:read("*a")
   fh:close()
-  T.truthy("the tab bar is hidden by default", page:find("%.nav {%s*display: none;") ~= nil)
+  -- The tab bar and the Properties card are lib/ui's, which its own tests cover; this checks the page is wired to it.
   T.truthy(
-    "and shown from two tabs",
-    page:find("classList.toggle('multi', document.querySelectorAll('.nav-tab').length > 1)", 1, true) ~= nil
+    "the page embeds the kit's stylesheet",
+    page:find("<!-- #embed ../../../../src/lib/ui/style.css -->", 1, true) ~= nil
   )
+  T.truthy("and its script", page:find("<!-- #embed ../../../../src/lib/ui/page.js -->", 1, true) ~= nil)
+  T.truthy("which runs the tab bar", page:find("initTabs(onTabSwitch)", 1, true) ~= nil)
+  T.truthy("and the Properties card", page:find("initPropertiesCard(document.getElementById('props'))", 1, true) ~= nil)
   T.eq("no Settings tab", page:find('data-panel="settings"', 1, true), nil)
   T.truthy("a Properties card on the Status tab", page:find('id="props-card"', 1, true) ~= nil)
 end
