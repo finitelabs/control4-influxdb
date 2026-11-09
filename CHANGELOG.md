@@ -20,14 +20,16 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
-<!-- #ifdef DRIVERCENTRAL -->
-
 ### Changed
 
+- Changed the Settings tab to show the driver's properties under its status, in
+  place of a separate Settings view, with each change saved at once.
+- Changed the Status view to show Driver Status as Composer does, with the time
+  of the last write and how many measurements and readings are set up.
+  <!-- #ifdef DRIVERCENTRAL -->
 - Changed Log Level to stop at 4 - Debug unless a Support Code from Finite Labs
   support has the Lua tab open.
-
-<!-- #endif -->
+  <!-- #endif -->
 
 ## v20261107 - 2026-11-07
 

@@ -153,7 +153,7 @@
         <name>InfluxDB URL</name>
         <type>STRING</type>
         <default/>
-        <description>InfluxDB server URL (e.g. http://influxdb.local:8086)</description>
+        <description>Your InfluxDB server's address, with its port.</description>
       </property>
       <property>
         <name>API Token</name>
@@ -166,7 +166,7 @@
         <name>Database</name>
         <type>STRING</type>
         <default/>
-        <description>InfluxDB database name</description>
+        <description>The database (bucket) the driver writes to.</description>
       </property>
       <property>
         <name>Write Precision</name>
@@ -178,6 +178,7 @@
           <item>ms</item>
           <item>s</item>
         </items>
+        <description>How precisely each point's time is stored.</description>
       </property>
       <property>
         <name>Default Write Interval</name>
@@ -190,6 +191,7 @@
           <item>5m</item>
           <item>15m</item>
         </items>
+        <description>How often readings are sent, unless a measurement sets its own.</description>
       </property>
       <property>
         <name>Offline Buffer Settings</name>
@@ -207,7 +209,7 @@
           <item>30m</item>
           <item>1h</item>
         </items>
-        <description>Fire Extended Outage event after this duration offline</description>
+        <description>How long writes can fail before Extended Outage fires.</description>
       </property>
     </properties>
     <tabs>

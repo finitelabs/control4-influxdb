@@ -294,6 +294,27 @@ case("shutdown still sends a buffer waiting on a retry", function()
   T.eq("the last flush tries it", #posts, 2)
 end)
 
+case("a write that answers after shutdown tells no one the counts changed", function()
+  local _, pending = captureWrites()
+  local told = 0
+  local w = InfluxWriter:new({
+    getConfig = function()
+      return { url = "http://influx.test", database = "db", precision = "ms", token = "t" }
+    end,
+    onMetrics = function()
+      told = told + 1
+    end,
+  })
+
+  w:enqueue("m", {}, { v = field(1) }, { interval = 60, dedup = false, dedupKey = "m::a" }, 1)
+  w:forceFlushAll()
+  T.truthy("the counts changed before shutdown", told > 0, told)
+  w:shutdown()
+  local before = told
+  settle(pending, 1, true)
+  T.eq("the late answer calls onMetrics no more", told, before)
+end)
+
 T.section("Removal")
 
 case("removeMeasurement drops every interval's buffer", function()

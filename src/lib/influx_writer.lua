@@ -4,6 +4,9 @@ local log = require("lib.logging")
 local constants = require("constants")
 local Deferred = require("deferred")
 local values = require("lib.values")
+--#ifdef DRIVERCENTRAL
+local diagnostics = require("lib.diagnostics")
+--#endif
 
 require("lib.utils")
 
@@ -303,6 +306,7 @@ end
 ---   - onConnected: function(bool)         called on successful/failed write
 ---   - onWriteError: function(errMsg)      called on write error
 ---   - onBufferFull: function()            called when buffer evicts oldest points
+---   - onMetrics: function()               called after the write counts change
 ---   - isRunning: function() -> bool       false holds every flush, its points kept in the buffer
 --- @return InfluxWriter
 function InfluxWriter:new(opts)
@@ -315,6 +319,7 @@ function InfluxWriter:new(opts)
   instance._onConnected = opts.onConnected
   instance._onWriteError = opts.onWriteError
   instance._onBufferFull = opts.onBufferFull
+  instance._onMetrics = opts.onMetrics
   instance._isRunning = opts.isRunning or function()
     return true
   end
@@ -417,6 +422,16 @@ function InfluxWriter:_updateMetricVariables()
   values:update("INFLUX_WRITE_ERRORS", m.writeErrors, "INT")
   values:update("INFLUX_WATCHDOG_FIRES", m.watchdogFires, "INT")
   values:update("INFLUX_LAST_WRITE_TS", m.lastWriteTimestamp > 0 and m.lastWriteTimestamp or "", "STRING")
+  -- Not once shutdown starts: a write that answers after the driver is destroyed must not arm the tab's timer.
+  if self._onMetrics and not self._shuttingDown then
+    local ok, err = pcall(self._onMetrics)
+    if not ok then
+      log:error("InfluxWriter: onMetrics failed: %s", tostring(err))
+      --#ifdef DRIVERCENTRAL
+      diagnostics:captureError(tostring(err), nil, "InfluxWriter.onMetrics")
+      --#endif
+    end
+  end
 end
 
 --- Drop a buffer's oldest point, which is in a batch in flight if it has one. A request that
@@ -862,6 +877,7 @@ function InfluxWriter:getMetrics()
     pointsWritten = m.pointsWritten,
     pointsDropped = m.pointsDropped,
     writeErrors = m.writeErrors,
+    watchdogFires = m.watchdogFires,
     lastWriteTimestamp = m.lastWriteTimestamp,
   }
 end

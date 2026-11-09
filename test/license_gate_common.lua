@@ -4,24 +4,47 @@
 local M = { SENSOR = 500 }
 local ROOT = (debug.getinfo(1, "S").source:match("@(.*[/\\])") or "./") .. "../"
 
---- Runs `path` as the DriverCentral build compiles it: a line its directives leave out is blanked.
-local function dofileDriverCentral(path)
+--- A build directive on a line of Lua (`--#ifdef X`) or XML (`<!-- #ifdef X -->`), and the name it tests.
+--- @param line string
+--- @return string|nil directive ifdef, ifndef, else or endif
+--- @return string|nil name
+local function directive(line)
+  local body = line:match("^%s*%-%-%s*(#.-)%s*$") or line:match("^%s*<!%-%-%s*(#.-)%s*%-%->%s*$")
+  if not body then
+    return nil
+  end
+  local ifdef, name = body:match("^#(ifn?def)%s+([%w_]+)$")
+  if ifdef then
+    return ifdef, name
+  end
+  return body:match("^#(else)$") or body:match("^#(endif)$")
+end
+
+--- The text of `path` as the DriverCentral build has it: a line its directives leave out is blanked.
+--- @param path string
+--- @return string
+local function driverCentralText(path)
   local f = assert(io.open(path))
   local lines, stack, including = {}, {}, true
   for line in f:lines() do
-    local ifdef, name = line:match("^%s*%-%-%s*#(ifn?def)%s+([%w_]+)%s*$")
-    if ifdef then
+    local kind, name = directive(line)
+    if kind == "ifdef" or kind == "ifndef" then
       stack[#stack + 1] = including
-      including = including and (name == "DRIVERCENTRAL") == (ifdef == "ifdef")
-    elseif line:match("^%s*%-%-%s*#else%s*$") then
+      including = including and (name == "DRIVERCENTRAL") == (kind == "ifdef")
+    elseif kind == "else" then
       including = stack[#stack] and not including
-    elseif line:match("^%s*%-%-%s*#endif%s*$") then
+    elseif kind == "endif" then
       including = table.remove(stack)
     end
     lines[#lines + 1] = including and line or ""
   end
   f:close()
-  assert(load(table.concat(lines, "\n"), "@" .. path))()
+  return table.concat(lines, "\n")
+end
+
+--- Runs `path` as the DriverCentral build compiles it.
+local function dofileDriverCentral(path)
+  assert(load(driverCentralText(path), "@" .. path))()
 end
 
 --- Properties as Director creates them from driver.xml's defaults.
@@ -61,8 +84,14 @@ function M.boot(answer, pid)
     Properties[name] = value
   end
   local configInfo = C4.GetDriverConfigInfo
+  local config = driverCentralText(ROOT .. "drivers/influxdb/driver.xml")
   function C4:GetDriverConfigInfo(section)
-    return section == "version" and "20261104" or configInfo(self, section)
+    if section == "version" then
+      return "20261104"
+    elseif section == "config" then
+      return config
+    end
+    return configInfo(self, section)
   end
   C4.SendDataToUI = function() end
   C4.FireEvent = function() end

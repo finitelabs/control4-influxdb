@@ -33,8 +33,13 @@
       line-height: 1.5;
     }
 
+    /* Hidden until the tab count shows two or more tabs. */
     .nav {
-      display: flex;
+      display: none;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 5;
       background: var(--surface);
       border-bottom: 1px solid var(--border);
       padding: 0 16px;
@@ -51,6 +56,8 @@
     }
     .nav-tab:hover { color: var(--text); }
     .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .nav.multi { display: flex; }
+    .nav-meta { margin-left: auto; padding-left: 12px; color: var(--text-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     .panel { display: none; padding: 16px; }
     .panel.active { display: block; }
@@ -271,43 +278,76 @@
       border-top: 1px solid var(--border);
     }
     .search-select-list > .search-select-section:first-child { border-top: none; }
+
+    /* Status card: Driver Status as a pill, then the counts as tiles. */
+    .summary-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-bottom: 12px; }
+    .summary-row .muted { color: var(--text-muted); overflow-wrap: anywhere; min-width: 0; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .pill.online { background: #dcfce7; color: var(--success); }
+    .pill.pending { background: #fef3c7; color: var(--warning); }
+    .pill.offline { background: #fee2e2; color: var(--danger); }
+    .readings { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; }
+    .reading { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; background: var(--surface); min-width: 0; }
+    .reading .k { color: var(--text-muted); font-size: 11px; }
+    .reading .v { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .reading.config { background: var(--bg); }
+
+    /* Properties card: the driver's properties, grouped under Composer's labels. */
+    .card .note { margin: -4px 0 12px; color: var(--text-muted); font-size: 12px; }
+    .pgroup { font-size: 11px; font-weight: 600; color: var(--text); margin: 14px 0 6px; }
+    .pgroup:first-child { margin-top: 0; }
+    .pfields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+    .pfields > div { min-width: 0; }
+    .pfields input, .pfields select { margin-bottom: 0; }
+    .pfields input:disabled { background: var(--bg); color: var(--text-muted); }
+    .pdesc { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+    .perror { color: var(--danger); font-size: 11px; margin-top: 3px; }
+    .input-error { border-color: var(--danger) !important; }
+
+    .conn-warn {
+      background: #fef3c7; border: 1px solid #fcd34d; color: #92400e;
+      border-radius: var(--radius); padding: 8px 12px; margin: 12px 16px 0; font-size: 12px;
+      display: none;
+    }
   </style>
 </head>
 <body>
 
-<div class="nav">
+<div class="nav" id="nav">
   <div class="nav-tab active" data-panel="status">Status</div>
-  <div class="nav-tab" data-panel="settings">Settings</div>
   <div class="nav-tab" data-panel="measurements">Measurements</div>
+  <span class="nav-meta" id="nav-meta">InfluxDB Data Logger</span>
 </div>
+<div class="conn-warn" id="conn-warn">Not connected to the controller. Open this tab from Composer. The values shown are examples.</div>
 
 <!-- Status Panel -->
 <div id="panel-status" class="panel active">
   <div class="card">
-    <h3>Connection</h3>
-    <div class="flex-between mb-8">
-      <span><span id="conn-dot" class="status-dot disconnected"></span><span id="conn-state">Loading...</span></span>
+    <h3>Status</h3>
+    <div class="summary-row">
+      <span id="status-pill" class="pill pending">Loading</span>
+      <span class="muted" id="status-server"></span>
+      <span class="muted" id="status-last"></span>
     </div>
-    <div class="grid-2">
-      <div><label>InfluxDB URL</label><span id="status-url">-</span></div>
-      <div><label>Database</label><span id="status-db">-</span></div>
-    </div>
-  </div>
-  <div class="card">
-    <h3>Write Metrics</h3>
-    <div class="grid-2">
-      <div><label>Points Buffered</label><span id="metric-buffered">0</span></div>
-      <div><label>Points Written</label><span id="metric-written">0</span></div>
-      <div><label>Points Dropped</label><span id="metric-dropped">0</span></div>
-      <div><label>Write Errors</label><span id="metric-errors">0</span></div>
+    <div class="readings">
+      <div class="reading config"><div class="k">Measurements</div><div class="v" id="count-measurements">0</div></div>
+      <div class="reading config"><div class="k">Readings</div><div class="v" id="count-readings">0</div></div>
+      <div class="reading"><div class="k">Points written</div><div class="v" id="metric-written">0</div></div>
+      <div class="reading"><div class="k">Buffered</div><div class="v" id="metric-buffered">0</div></div>
+      <div class="reading"><div class="k">Dropped</div><div class="v" id="metric-dropped">0</div></div>
+      <div class="reading"><div class="k">Write errors</div><div class="v" id="metric-errors">0</div></div>
+      <div class="reading"><div class="k">Watchdog fires</div><div class="v" id="metric-watchdog">0</div></div>
     </div>
   </div>
-</div>
-
-<!-- Settings Panel (rendered dynamically from properties) -->
-<div id="panel-settings" class="panel">
-  <div id="settings-container">
-    <div class="empty">Loading properties...</div>
+  <div class="card" id="props-card" style="display:none;">
+    <h3>Properties</h3>
+    <!-- #ifdef DRIVERCENTRAL -->
+    <p class="note">The driver's properties, as in Composer. API Token and Support Code are set in Composer.</p>
+    <!-- #else -->
+    <p class="note">The driver's properties, as in Composer. API Token is set in Composer.</p>
+    <!-- #endif -->
+    <div id="props"></div>
   </div>
 </div>
 
@@ -440,6 +480,7 @@ function api(method, path, body) {
 
 // Send UIRequest command to driver
 function sendCommand(cmd, params) {
+  if (!gApiHost) { demoCommand(cmd, params || {}); return Promise.resolve(null); }
   return api('POST', '/api/v1/items/' + gDriverId + '/commands', {
     command: cmd,
     // UTF-8, since btoa takes only Latin-1.
@@ -448,16 +489,6 @@ function sendCommand(cmd, params) {
   });
 }
 
-// Read all properties
-function getProperties() { return api('GET', '/api/v1/items/' + gDriverId + '/properties'); }
-
-// Set a property value
-function setProperty(name, value) {
-  var props = {};
-  // Director reads this as XML: a raw < loses the change, while the reply still says updated.
-  props[name] = String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  return api('POST', '/api/v1/items/' + gDriverId + '/properties', { properties: props });
-}
 
 // ============================================================
 // Socket.io for real-time updates
@@ -515,29 +546,28 @@ function handleSocketEvent(evt) {
 }
 
 function handlePropertyEvent(evt) {
-  // Update individual property values in-place without re-rendering the DOM
   var items = Array.isArray(evt) ? evt : [evt];
   items.forEach(function(item) {
     var dc = item.data ? item.data.devicecommand : (item.devicecommand || null);
     if (!dc || dc.command !== 'UPDATE_PROPERTY') return;
-    var name = dc.name;
-    var value = dc.value;
-    var id = 'prop-' + String(name || '').replace(/\s/g, '-');
-    var el = document.getElementById(id);
-    // Only update if the element exists and isn't currently focused (user editing)
-    if (el && document.activeElement !== el) {
-      el.value = value;
-    }
-    // Also update gProperties cache
+    var value = dc.value === undefined || dc.value === null ? '' : String(dc.value);
+    if (dc.name === 'Driver Status') setStatusPill(value);
     for (var i = 0; i < gProperties.length; i++) {
-      if (gProperties[i].name === name) { gProperties[i].value = value; break; }
+      if (gProperties[i].name === dc.name) { gProperties[i].value = value; renderProps(); break; }
     }
   });
 }
 
 function handleDriverData(cmd, params) {
   try {
-    if (cmd === 'CONFIG_DATA') onConfigLoaded(JSON.parse(params.config || '{}'));
+    if (cmd === 'CONFIG_DATA') {
+      onConfigLoaded(JSON.parse(params.config || '{}'));
+      if (params.properties) onProperties(JSON.parse(params.properties));
+    }
+    else if (cmd === 'PROPERTY_ERROR') {
+      var refusal = JSON.parse(params.payload || '{}');
+      onPropertyError(refusal.property, refusal.error || '');
+    }
     else if (cmd === 'STATUS_DATA') onStatusLoaded(JSON.parse(params.status || '{}'));
     else if (cmd === 'DEVICES_DATA') onDevicesLoaded(JSON.parse(params.devices || '[]'));
     else if (cmd === 'DEVICE_VARIABLES_DATA') onDeviceVariablesLoaded(params.deviceId, JSON.parse(params.variables || '[]'));
@@ -585,6 +615,8 @@ function switchTab(panelName) {
   updateHash();
 }
 
+// A new tab is one more .nav-tab naming its panel.
+document.getElementById('nav').classList.toggle('multi', document.querySelectorAll('.nav-tab').length > 1);
 document.querySelectorAll('.nav-tab').forEach(function(tab) {
   tab.addEventListener('click', function() { switchTab(tab.dataset.panel); });
 });
@@ -609,112 +641,122 @@ restoreHash();
 // Init
 // ============================================================
 async function init() {
+  if (!gApiHost) { loadDemo(); return; }
   await initSocket();
-  loadProperties();
+  // The driver pushes the status after each change, and the config after each property change.
   sendCommand('_GET_CONFIG');
   sendCommand('_GET_STATUS');
   sendCommand('_GET_DEVICES');
-  // Refresh status every 30s
-  setInterval(function() { sendCommand('_GET_STATUS'); }, 30000);
 }
 
 // ============================================================
-// Properties (dynamic rendering like Neeo Remote)
+// Properties
 // ============================================================
-var PROP_GROUPS = {
-  'Cloud': ['Automatic Updates', 'Update Channel'],
-  'Driver': ['Log Level', 'Log Mode'],
-  'InfluxDB Connection': ['InfluxDB URL', 'API Token', 'Database', 'Write Precision', 'Default Write Interval'],
-  'Buffer & Retry': ['Outage Notification Threshold']
-};
+var gPropertyErrors = {};          // property name -> the reason the driver refused its value
 
-async function loadProperties() {
-  var data = await getProperties();
-  if (!data) return;
-  gProperties = Array.isArray(data) ? data : (data.properties || []);
-  renderProperties();
+function onProperties(properties) {
+  gProperties = properties || [];
+  renderProps();
 }
 
-function renderProperties() {
-  var container = document.getElementById('settings-container');
-  if (!gProperties.length) { container.innerHTML = '<div class="empty">No properties found.</div>'; return; }
-
-  var byName = {};
-  gProperties.forEach(function(p) { byName[p.name] = p; });
-
-  var html = '';
-  for (var group in PROP_GROUPS) {
-    var props = PROP_GROUPS[group];
-    var groupHtml = '';
-    props.forEach(function(name) {
-      var p = byName[name];
-      if (!p) return;
-      delete byName[name];
-      groupHtml += renderProperty(p);
-    });
-    if (groupHtml) {
-      html += '<div class="card"><h3>' + esc(group) + '</h3>' + groupHtml + '</div>';
-    }
+function propControl(p, id, failed) {
+  var attrs = ' id="' + id + '" data-prop="' + esc(p.name) + '"' + (failed ? ' class="input-error"' : '');
+  if (p.readonly) return '<input type="text"' + attrs + ' value="' + esc(p.value) + '" title="' + esc(p.value) + '" disabled>';
+  if (p.choices) {
+    return '<select' + attrs + '>' + p.choices.map(function(c) {
+      return '<option' + (c === p.value ? ' selected' : '') + '>' + esc(c) + '</option>';
+    }).join('') + '</select>';
   }
-
-  // Hide status-only properties that are shown in Status tab
-  var hideProps = {'Driver Status':1, 'Driver Version':1};
-
-  // Render any remaining ungrouped properties
-  var remaining = '';
-  for (var name in byName) {
-    var p = byName[name];
-    if (p.type === 'LABEL' || hideProps[name]) continue;
-    remaining += renderProperty(p);
-  }
-  if (remaining) {
-    html += '<div class="card"><h3>Other</h3>' + remaining + '</div>';
-  }
-
-  container.innerHTML = html;
+  return '<input type="text"' + attrs + ' value="' + esc(p.value) + '">';
 }
 
-function renderProperty(p) {
-  if (p.type === 'LABEL') return '';
-  var ro = p.readonly === true || p.readonly === 'true';
-  var id = 'prop-' + esc(p.name).replace(/\s/g, '-');
+function propCell(p, i) {
+  var id = 'prop-' + i;
+  var failed = gPropertyErrors[p.name];
+  return '<div><label for="' + id + '">' + esc(p.name) + '</label>' + propControl(p, id, failed) +
+    (failed ? '<div class="perror">' + esc(failed) + '</div>' : '') +
+    (p.description ? '<div class="pdesc">' + esc(p.description) + '</div>' : '') + '</div>';
+}
 
-  if (p.type === 'LIST' && !ro) {
-    var options = '';
-    var items = p.items ? (Array.isArray(p.items.item) ? p.items.item : (p.items.item ? [p.items.item] : [])) : [];
-    items.forEach(function(item) {
-      var val = typeof item === 'object' ? item.text : item;
-      options += '<option value="' + esc(val) + '"' + (val === p.value ? ' selected' : '') + '>' + esc(val) + '</option>';
-    });
-    return '<div style="margin-bottom:8px;"><label>' + esc(p.name) + '</label>' +
-      '<select id="' + id + '" onchange="onPropertyChange(\'' + esc(p.name) + '\',this.value)">' + options + '</select></div>';
+function renderProps() {
+  var el = document.getElementById('props');
+  // A push must not swap a control out from under the one being edited; the next push catches up.
+  if (el.contains(document.activeElement)) return;
+  var groups = [];
+  gProperties.forEach(function(p, i) {
+    var g = groups[groups.length - 1];
+    if (!g || g.name !== p.group) groups.push(g = { name: p.group, html: [] });
+    g.html.push(propCell(p, i));
+  });
+  document.getElementById('props-card').style.display = groups.length ? '' : 'none';
+  el.innerHTML = groups.map(function(g) {
+    return (g.name ? '<div class="pgroup">' + esc(g.name) + '</div>' : '') + '<div class="pfields">' + g.html.join('') + '</div>';
+  }).join('');
+}
+
+function onPropertyError(name, message) {
+  gPropertyErrors[name] = message;
+  // Only its own field redraws: another may be being edited.
+  gProperties.forEach(function(p, i) {
+    if (p.name === name) document.getElementById('prop-' + i).parentNode.outerHTML = propCell(p, i);
+  });
+}
+
+document.getElementById('props').addEventListener('change', function(e) {
+  var name = e.target.dataset.prop;
+  if (!name) return;
+  var value = e.target.value;
+  e.target.blur();
+  if (gPropertyErrors[name]) {
+    delete gPropertyErrors[name];
+    e.target.classList.remove('input-error');
+    e.target.parentNode.removeChild(e.target.parentNode.querySelector('.perror'));
   }
-
-  var type = (p.name === 'API Token') ? 'password' : 'text';
-  return '<div style="margin-bottom:8px;"><label>' + esc(p.name) + '</label>' +
-    '<input type="' + type + '" id="' + id + '" value="' + esc(p.value || '') + '"' +
-    (ro ? ' readonly' : ' onblur="onPropertyChange(\'' + esc(p.name) + '\',this.value)"') + '/></div>';
-}
-
-function onPropertyChange(name, value) {
-  setProperty(name, value);
-}
+  sendCommand('_SET_PROPERTY', { property: name, value: value });
+});
 
 // ============================================================
 // Status
 // ============================================================
+// Statuses that wait on a setting or a test rather than report a failure.
+var PENDING_STATUSES = { 'Not configured': 1, 'No URL configured': 1, 'Incomplete config': 1, 'Testing...': 1, 'Loading': 1 };
+
+function setStatusPill(text) {
+  var pill = document.getElementById('status-pill');
+  pill.textContent = text || 'Loading';
+  pill.className = 'pill ' + (text === 'Connected' ? 'online' : PENDING_STATUSES[text || 'Loading'] ? 'pending' : 'offline');
+}
+
+function lastWriteText(seconds) {
+  if (!seconds) return 'No write yet';
+  var at = new Date(seconds * 1000);
+  var today = new Date();
+  var sameDay = at.toDateString() === today.toDateString();
+  return 'Last write ' + (sameDay ? at.toLocaleTimeString() : at.toLocaleString());
+}
+
+function setCount(id, n) { document.getElementById(id).textContent = Number(n || 0).toLocaleString(); }
+
 function onStatusLoaded(status) {
-  var dot = document.getElementById('conn-dot');
-  var state = document.getElementById('conn-state');
-  var cs = (status.connectionState || 'Disconnected').toLowerCase();
-  dot.className = 'status-dot ' + (cs === 'connected' ? 'connected' : cs === 'reconnecting' ? 'reconnecting' : 'disconnected');
-  state.textContent = status.connectionState || 'Disconnected';
-  document.getElementById('status-url').textContent = status.url || '-';
-  document.getElementById('status-db').textContent = status.database || '-';
-  document.getElementById('metric-buffered').textContent = status.pointsBuffered || '0';
-  document.getElementById('metric-written').textContent = status.pointsWritten || '0';
-  document.getElementById('metric-dropped').textContent = status.pointsDropped || '0';
-  document.getElementById('metric-errors').textContent = status.writeErrors || '0';
+  setStatusPill(status.driverStatus);
+  var server = status.url || '';
+  if (server && status.database) server += ', database ' + status.database;
+  document.getElementById('status-server').textContent = server;
+  document.getElementById('status-last').textContent = lastWriteText(status.lastWrite);
+  setCount('metric-written', status.pointsWritten);
+  setCount('metric-buffered', status.pointsBuffered);
+  setCount('metric-dropped', status.pointsDropped);
+  setCount('metric-errors', status.writeErrors);
+  setCount('metric-watchdog', status.watchdogFires);
+}
+
+// The counts follow the Measurements tab: they come from the same config.
+function renderCounts() {
+  var names = Object.keys(gConfig);
+  var readings = 0;
+  names.forEach(function(name) { readings += Object.keys((gConfig[name] || {}).readings || {}).length; });
+  setCount('count-measurements', names.length);
+  setCount('count-readings', readings);
 }
 
 // ============================================================
@@ -722,6 +764,7 @@ function onStatusLoaded(status) {
 // ============================================================
 function onConfigLoaded(config) {
   gConfig = config || {};
+  renderCounts();
   renderMeasList();
   if (gEditingMeas && gConfig[gEditingMeas]) {
     document.getElementById('meas-list-view').style.display = 'none';
@@ -1338,6 +1381,121 @@ function onDeviceVariablesLoaded(deviceId, vars) {
         isFieldM ? ((meas.fieldTypes||{})[defName] || '') : '');
     });
   }
+}
+
+// ============================================================
+// Demo data, for a page opened outside Composer (previews and doc screenshots)
+// ============================================================
+var DEMO_DEVICES = [
+  [301, 'Panel Meter', 'Utility', [[1001, 'WATTS', 'NUMBER', '1840'], [1002, 'KWH_TODAY', 'NUMBER', '12.6']]],
+  [302, 'Garage Freezer', 'Garage', [[1001, 'WATTS', 'NUMBER', '96'], [1002, 'KWH_TODAY', 'NUMBER', '1.9']]],
+  [303, 'Workshop Outlet', 'Garage', [[1001, 'WATTS', 'NUMBER', '0'], [1002, 'KWH_TODAY', 'NUMBER', '0.4']]],
+  [304, 'Upstairs Thermostat', 'Upstairs', [[1130, 'TEMPERATURE_F', 'NUMBER', '70.5'], [1138, 'HUMIDITY', 'NUMBER', '41']]],
+  [305, 'Basement Sensor', 'Basement', [[1130, 'TEMPERATURE_F', 'NUMBER', '63.2'], [1138, 'HUMIDITY', 'NUMBER', '55']]],
+  [308, 'Garage Sensor', 'Garage', [[1130, 'TEMPERATURE_F', 'NUMBER', '58.9'], [1138, 'HUMIDITY', 'NUMBER', '47']]],
+  [309, 'Attic Sensor', 'Attic', [[1130, 'TEMPERATURE_F', 'NUMBER', '81.4'], [1138, 'HUMIDITY', 'NUMBER', '38']]],
+  [306, 'Hallway Lights', 'Hallway', [[1000, 'LIGHT_STATE', 'NUMBER', '1'], [1001, 'Brightness Percent', 'NUMBER', '60']]],
+  [310, 'Porch Light', 'Entry', [[1000, 'LIGHT_STATE', 'NUMBER', '0'], [1001, 'Brightness Percent', 'NUMBER', '0']]],
+  [307, 'Front Door', 'Entry', [[1000, 'ContactState', 'NUMBER', '0']]],
+  [311, 'Back Door', 'Kitchen', [[1000, 'ContactState', 'NUMBER', '0']]]
+];
+
+function demoReading(fields, deviceId, varIds) {
+  var mappings = {
+    device_name: { source: 'literal', literal: String(deviceId), transform: 'device_name(value)' },
+    room_name: { source: 'literal', literal: String(deviceId), transform: 'room_name(value)' }
+  };
+  fields.forEach(function(f, i) { mappings[f] = { source: 'variable', varId: deviceId + ':' + varIds[i] }; });
+  return { enabled: true, mappings: mappings };
+}
+
+function demoMeasurement(fields, types, interval, enabled, readings) {
+  var fieldTypes = {};
+  fields.forEach(function(f, i) { fieldTypes[f] = types[i]; });
+  var r = {};
+  readings.forEach(function(x) { r[x[0]] = demoReading(fields, x[1], x[2]); });
+  return { dedup: false, enabled: enabled, fieldDefs: fields, fieldTypes: fieldTypes, interval: interval,
+    tagDefs: ['device_name', 'room_name'], readings: r };
+}
+
+function loadDemo() {
+  document.getElementById('conn-warn').style.display = 'block';
+  onDevicesLoaded(DEMO_DEVICES.map(function(d) {
+    return { id: d[0], name: d[1], displayName: d[2] + ' > ' + d[1], roomName: d[2], section: 'Devices',
+      hasVariables: true, memberIds: [d[0]] };
+  }));
+  onConfigLoaded({
+    energy: demoMeasurement(['watts', 'kwh_today'], ['float', 'float'], '1m', true,
+      [['Panel', 301, [1001, 1002]], ['Freezer', 302, [1001, 1002]], ['Workshop', 303, [1001, 1002]]]),
+    climate: demoMeasurement(['temperature', 'humidity'], ['float', 'integer'], '5m', true,
+      [['Upstairs', 304, [1130, 1138]], ['Basement', 305, [1130, 1138]], ['Garage', 308, [1130, 1138]], ['Attic', 309, [1130, 1138]]]),
+    lighting: demoMeasurement(['on', 'level'], ['integer', 'integer'], '1m', true,
+      [['Hallway', 306, [1000, 1001]], ['Porch', 310, [1000, 1001]]]),
+    doors: demoMeasurement(['open'], ['integer'], '1m', false,
+      [['Front Door', 307, [1000]], ['Back Door', 311, [1000]]])
+  });
+  onStatusLoaded({ driverStatus: 'Connected', url: 'http://influxdb.example.invalid:8086', database: 'home',
+    lastWrite: Math.floor(Date.now() / 1000) - 29, pointsWritten: 18412, pointsBuffered: 12, pointsDropped: 0,
+    writeErrors: 0, watchdogFires: 0 });
+  onProperties([
+    // #ifdef DRIVERCENTRAL
+    { name: 'Cloud Status', group: 'Cloud Settings', readonly: true, value: 'License Activated' },
+    // #endif
+    { name: 'Automatic Updates', group: 'Cloud Settings', value: 'On', choices: ['Off', 'On'] },
+    // #ifndef DRIVERCENTRAL
+    { name: 'Update Channel', group: 'Cloud Settings', value: 'Production', choices: ['Production', 'Prerelease'] },
+    // #endif
+    { name: 'Driver Status', group: 'Driver Settings', readonly: true, value: 'Connected' },
+    { name: 'Driver Version', group: 'Driver Settings', readonly: true, value: '20261107' },
+    { name: 'Log Level', group: 'Driver Settings', value: '3 - Info',
+      // #ifdef DRIVERCENTRAL
+      choices: ['0 - Fatal', '1 - Error', '2 - Warning', '3 - Info', '4 - Debug']
+      // #else
+      choices: ['0 - Fatal', '1 - Error', '2 - Warning', '3 - Info', '4 - Debug', '5 - Trace', '6 - Ultra']
+      // #endif
+    },
+    { name: 'Log Mode', group: 'Driver Settings', value: 'Off', choices: ['Off', 'Print', 'Log', 'Print and Log'] },
+    // #ifdef DRIVERCENTRAL
+    { name: 'Cloud Monitoring', group: 'Driver Settings', value: 'Enabled', choices: ['Disabled', 'Enabled'],
+      description: 'Sends memory and error reports to Finite Labs so we can fix driver problems.' },
+    // #endif
+    { name: 'InfluxDB URL', group: 'InfluxDB Connection', value: 'http://influxdb.example.invalid:8086',
+      description: "Your InfluxDB server's address, with its port." },
+    { name: 'Database', group: 'InfluxDB Connection', value: 'home',
+      description: 'The database (bucket) the driver writes to.' },
+    { name: 'Write Precision', group: 'InfluxDB Connection', value: 'ms', choices: ['ns', 'us', 'ms', 's'],
+      description: "How precisely each point's time is stored." },
+    { name: 'Default Write Interval', group: 'InfluxDB Connection', value: '1m', choices: ['10s', '30s', '1m', '5m', '15m'],
+      description: 'How often readings are sent, unless a measurement sets its own.' },
+    { name: 'Outage Notification Threshold', group: 'Offline Buffer & Retry', value: '5m', choices: ['1m', '5m', '15m', '30m', '1h'],
+      description: 'How long writes can fail before Extended Outage fires.' }
+  ]);
+}
+
+// Commands a demo page answers itself, as a controller would, after the page has drawn; it changes nothing.
+function demoCommand(cmd, params) {
+  if (cmd === '_EVAL_TRANSFORM') {
+    // The preview as the driver would show it, for the two tag transforms and an untransformed field.
+    setTimeout(function() {
+      var v = params.value, out = String(v);
+      var dev = DEMO_DEVICES.filter(function(d) { return String(d[0]) === String(v); })[0];
+      if (params.expression === 'device_name(value)') out = dev ? dev[1] : out;
+      else if (params.expression === 'room_name(value)') out = dev ? dev[2] : out;
+      else if (params.valueType === 'float') out = Number.isInteger(Number(v)) ? Number(v).toFixed(1) : String(Number(v));
+      else if (params.valueType === 'integer') out = String(Math.floor(Number(v)));
+      onTransformResult(params.id, out, null);
+    }, 0);
+    return;
+  }
+  if (cmd !== '_GET_DEVICE_VARIABLES') return;
+  setTimeout(function() {
+    DEMO_DEVICES.forEach(function(d) {
+      if (String(d[0]) !== String(params.deviceId)) return;
+      onDeviceVariablesLoaded(String(d[0]), d[3].map(function(v, i) {
+        return { id: v[0], deviceId: d[0], section: 'Devices', order: i, name: v[1], type: v[2], value: v[3] };
+      }));
+    });
+  }, 0);
 }
 
 // ============================================================
