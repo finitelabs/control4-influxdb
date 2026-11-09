@@ -422,7 +422,7 @@ function InfluxWriter:_updateMetricVariables()
   values:update("INFLUX_WRITE_ERRORS", m.writeErrors, "INT")
   values:update("INFLUX_WATCHDOG_FIRES", m.watchdogFires, "INT")
   values:update("INFLUX_LAST_WRITE_TS", m.lastWriteTimestamp > 0 and m.lastWriteTimestamp or "", "STRING")
-  -- Not once shutdown starts: its last flushes still change the counts, and teardown must not re-arm a timer.
+  -- Not once shutdown starts: a write that answers after the driver is destroyed must not arm the tab's timer.
   if self._onMetrics and not self._shuttingDown then
     local ok, err = pcall(self._onMetrics)
     if not ok then
