@@ -325,56 +325,36 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
-### Changed
-
-- Changed Log Level in the DriverCentral build to stop at `4 - Debug`:
-  `5 - Trace` and `6 - Ultra` are offered only while a Support Code from Finite
-  Labs support has the Lua tab open, and a driver set to either goes back to
-  `4 - Debug`.
-
 ## v20261107 - 2026-11-07
 
 ### Fixed
 
-- Fixed the driver holding far more unsent data in memory than it should during
-  an InfluxDB outage. It now holds at most 8 MB across all its measurements and
-  drops the oldest points from the largest first. Once delivery resumes, each
-  reading writes its current value again.
-- Fixed a failing write being sent again every 5 seconds for as long as InfluxDB
-  was down or overloaded. Retries now wait longer each time, up to 15 minutes,
-  so points can reach InfluxDB up to 15 minutes after it's back. As soon as one
-  write, or the connection test after a settings change, gets through, every
-  measurement sends what it holds, unless InfluxDB asked the driver to wait.
-- Fixed `Driver Status` reading `Connected`, and the `Disconnected` event not
-  firing, while writes failed because the server couldn't be reached.
-- Fixed the `Extended Outage` event never firing. It now fires once writes to
-  InfluxDB have failed for the `Outage Notification Threshold`, once per outage.
-- Fixed the `Buffer Full` event firing for every point lost. It now fires once
-  each time points start being lost, and again only after delivery resumes.
+- Fixed the driver holding far too much unsent data during an InfluxDB outage,
+  so it now keeps at most 8 MB and drops the oldest points first.
+- Fixed a failing write being sent again every 5 seconds while InfluxDB was
+  down, so retries now wait longer each time, up to 15 minutes.
+- Fixed Driver Status reading Connected, and the Disconnected event not firing,
+  while the server could not be reached.
+- Fixed the Extended Outage event never firing, so it now fires once per outage
+  after the Outage Notification Threshold.
+- Fixed the Buffer Full event firing for every point lost, so it now fires once
+  each time points start being lost.
 - Fixed writes for a measurement stopping until the driver was reloaded when a
-  request to InfluxDB never got an answer. The driver now sends those points
-  again after five write intervals, at least 5 minutes, and the new
-  `INFLUX_WATCHDOG_FIRES` variable counts each time.
-- Fixed a logged variable whose value isn't a finite number being written as a
-  wrong number, or making InfluxDB refuse the other points sent with it. That
-  value is now left out and the rest of the reading is written.
-- Fixed every point being written at the wrong time when `Write Precision` was
-  set to anything but `ms`: thousands of years ahead with `s`, and in January
-  1970 with `us` or `ns`.
-- Fixed saving text in the Settings tab. A character outside Western European
-  alphabets made the save do nothing, and an accented letter was stored wrongly.
-  A reading or field named that way now keeps its own mappings, and a property
-  holding `<` now saves.
-- Fixed changing Automatic Updates or Update Channel on an InfluxDB driver
-  briefly holding up every other InfluxDB driver, longer in a project with many,
-  while the change was copied to them.
+  request to InfluxDB never got an answer.
+- Fixed a logged variable whose value is not a finite number being written as a
+  wrong number, or making InfluxDB refuse the rest of the write.
+- Fixed every point being written at the wrong time when Write Precision was set
+  to anything but ms.
+- Fixed saving text in the Settings tab that held accented letters, other
+  alphabets or a less-than sign.
+- Fixed changing Automatic Updates or Update Channel on one InfluxDB driver
+  briefly holding up the others.
 
 ### Removed
 
-- Removed the `Max Buffer Size` and `Offline Buffer Size` properties and the
-  `Clear Offline Buffer` action, which never did anything. The driver limits
-  unsent data itself, and the `INFLUX_POINTS_BUFFERED` variable shows how many
-  points are waiting.
+- Removed the Max Buffer Size and Offline Buffer Size properties and the Clear
+  Offline Buffer action, which never did anything, since the driver now limits
+  unsent data itself.
 
 ## v20260816 - 2026-08-16
 
@@ -382,16 +362,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 - A schema field can pin its InfluxDB type instead of inferring it from each
   value, so a measurement whose readings mix whole and fractional numbers is no
-  longer rejected. The mapping preview shows the pinned type, so `0`, `0.0`,
-  `"0"` and `false` are told apart and a lossy pin is visible before saving.
-- Agents are listed in the device picker under their own heading, so variables
-  that live on an agent, such as Composer global variables, can be logged.
+  longer rejected, and the mapping preview shows the pinned type.
+- Variables on agents, including Composer global variables, can be logged.
 
 ### Fixed
 
 - All of a measurement's readings on the same schedule are sent in one write,
-  instead of one request per reading saturating the controller until writes
-  timed out.
+  instead of one request each.
 - Points carry the time they were read, rather than the time the write arrived,
   which drifted by minutes whenever a write was retried.
 - A measurement no longer starts a write while one is still outstanding, so a
@@ -403,19 +380,10 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Disabling a measurement stops its writes instead of leaving its buffered
   points retrying.
 - A value of zero shows in the mapping preview instead of appearing blank.
-- A device's own variables are always listed before its proxies' in the variable
-  picker.
-- Device and variable dropdowns in the measurement editor are no longer cut off
-  by the surrounding card, and stay on screen near the edges of the pane.
-- A device that a driver exposes through a proxy of the same name now appears
-  once in the device picker instead of several times, and its variable list is
-  grouped by where each variable comes from. Proxies that stand for something of
-  their own, such as a security panel's areas or a receiver's tuner, are still
-  listed separately. Devices that genuinely share a room and name are told apart
-  by their device id. Devices with no variables are hidden when mapping a field
-  or tag, and remain available under Device Tags.
-- A long measurement name no longer pushes the Delete button out of reach in the
-  measurements table.
+- A device now appears once in the device picker instead of once for each proxy
+  of the same name.
+- Dropdowns and the Delete button in the measurement editor are no longer cut
+  off or pushed out of reach.
 
 ### Changed
 
