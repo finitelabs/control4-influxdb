@@ -118,9 +118,8 @@ for setting it up.
    information for your InfluxDB instance. The
    [`Driver Status`](#driver-status-read-only) will display `Connected`
    automatically once the URL, API Token, and Database are set.
-1. Create measurements using the
-   [Measurement Configuration](#measurement-configuration) properties and bind
-   Control4 variables to them.
+1. Create measurements on the Settings tab's [Measurements](#measurements) view
+   and map Control4 variables to them.
 
 <!-- #else -->
 
@@ -135,9 +134,8 @@ for setting it up.
    information for your InfluxDB instance. The
    [`Driver Status`](#driver-status-read-only) will display `Connected`
    automatically once the URL, API Token, and Database are set.
-1. Create measurements using the
-   [Measurement Configuration](#measurement-configuration) properties and bind
-   Control4 variables to them.
+1. Create measurements on the Settings tab's [Measurements](#measurements) view
+   and map Control4 variables to them.
 
 <!-- #endif -->
 
