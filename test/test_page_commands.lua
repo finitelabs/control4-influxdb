@@ -1,4 +1,4 @@
--- The Settings tab's commands: a page's own sendCommand line, run under node, reaches the driver's real handlers with
+-- The web tab's commands: a page's own sendCommand line, run under node, reaches the driver's real handlers with
 -- text in any language intact.
 --
 -- Run from the driver root:
@@ -73,11 +73,14 @@ else
   print("SKIP: node not installed; the page's own line was not run")
 end
 
-T.section("A property set encodes what Director reads as XML")
-T.check(
-  "the page's setProperty does",
-  page:find("String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;')", 1, true) ~= nil
-)
+T.section("A property set from the page, by the page's own line")
+if hasNode() then
+  local reply = JSON:decode(UIR._SET_PROPERTY(fromPage({ property = "Database", value = TEXT })))
+  T.eq("the driver answers with the config", reply._command, "CONFIG_DATA")
+  T.eq("and the property holds the text exactly", Properties["Database"], TEXT)
+else
+  print("SKIP: node not installed; the page's own line was not run")
+end
 
 T.section("Names outside Latin-1 keep their own ids")
 if hasNode() then

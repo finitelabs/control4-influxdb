@@ -303,6 +303,7 @@ end
 ---   - onConnected: function(bool)         called on successful/failed write
 ---   - onWriteError: function(errMsg)      called on write error
 ---   - onBufferFull: function()            called when buffer evicts oldest points
+---   - onMetrics: function()               called after the write counts change
 ---   - isRunning: function() -> bool       false holds every flush, its points kept in the buffer
 --- @return InfluxWriter
 function InfluxWriter:new(opts)
@@ -315,6 +316,7 @@ function InfluxWriter:new(opts)
   instance._onConnected = opts.onConnected
   instance._onWriteError = opts.onWriteError
   instance._onBufferFull = opts.onBufferFull
+  instance._onMetrics = opts.onMetrics
   instance._isRunning = opts.isRunning or function()
     return true
   end
@@ -417,6 +419,9 @@ function InfluxWriter:_updateMetricVariables()
   values:update("INFLUX_WRITE_ERRORS", m.writeErrors, "INT")
   values:update("INFLUX_WATCHDOG_FIRES", m.watchdogFires, "INT")
   values:update("INFLUX_LAST_WRITE_TS", m.lastWriteTimestamp > 0 and m.lastWriteTimestamp or "", "STRING")
+  if self._onMetrics then
+    pcall(self._onMetrics)
+  end
 end
 
 --- Drop a buffer's oldest point, which is in a batch in flight if it has one. A request that
@@ -862,6 +867,7 @@ function InfluxWriter:getMetrics()
     pointsWritten = m.pointsWritten,
     pointsDropped = m.pointsDropped,
     writeErrors = m.writeErrors,
+    watchdogFires = m.watchdogFires,
     lastWriteTimestamp = m.lastWriteTimestamp,
   }
 end

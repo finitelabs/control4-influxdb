@@ -93,23 +93,23 @@ next to the "Properties", "Actions", "Documentation", and "Lua" tabs.
 
 #### Settings
 
-The Settings tab contains three views:
+The Settings tab contains two views:
 
 ##### Status
 
-Displays the current connection status and write metrics.
+Shows what the driver is doing, what it logs, and its properties.
 
 <img alt="Status" src="./images/ui-status.png" width="500"/>
 
-1. **Connection** - shows the connection state, InfluxDB URL, and database name.
-1. **Write Metrics** - points buffered, written, dropped, and write errors.
-
-##### Settings
-
-Displays the driver properties in a grouped layout. See
-[Driver Properties](#driver-properties) for details on each setting.
-
-<img alt="Settings" src="./images/ui-settings.png" width="500"/>
+1. **Driver Status** - the same status Composer shows, with the InfluxDB URL,
+   the database, and the time of the last write.
+1. **Counts** - how many measurements and readings are set up on the
+   Measurements view, then the points written, points waiting to be sent, points
+   dropped, write errors, and watchdog fires since the driver started.
+1. **Properties** - the driver's properties, grouped as in Composer. A change is
+   saved as soon as you make it, and a value the driver can't take is marked at
+   its field. Passwords are set in Composer. See
+   [Driver Properties](#driver-properties) for each one.
 
 ##### Measurements
 
@@ -331,6 +331,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   `5 - Trace` and `6 - Ultra` are offered only while a Support Code from Finite
   Labs support has the Lua tab open, and a driver set to either goes back to
   `4 - Debug`.
+- Changed the Settings tab's Status view to show the driver's properties with
+  its status, in place of a separate Settings view. It shows Driver Status as
+  Composer does and counts the measurements and readings set up, and each
+  property is saved as soon as it changes. Every property now has a short
+  description, in Composer too.
 
 ## v20261107 - 2026-11-07
 

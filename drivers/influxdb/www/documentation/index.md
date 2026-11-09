@@ -151,23 +151,23 @@ next to the "Properties", "Actions", "Documentation", and "Lua" tabs.
 
 #### Settings
 
-The Settings tab contains three views:
+The Settings tab contains two views:
 
 ##### Status
 
-Displays the current connection status and write metrics.
+Shows what the driver is doing, what it logs, and its properties.
 
 <img alt="Status" src="./images/ui-status.png" width="500"/>
 
-1. **Connection** - shows the connection state, InfluxDB URL, and database name.
-1. **Write Metrics** - points buffered, written, dropped, and write errors.
-
-##### Settings
-
-Displays the driver properties in a grouped layout. See
-[Driver Properties](#driver-properties) for details on each setting.
-
-<img alt="Settings" src="./images/ui-settings.png" width="500"/>
+1. **Driver Status** - the same status Composer shows, with the InfluxDB URL,
+   the database, and the time of the last write.
+1. **Counts** - how many measurements and readings are set up on the
+   Measurements view, then the points written, points waiting to be sent, points
+   dropped, write errors, and watchdog fires since the driver started.
+1. **Properties** - the driver's properties, grouped as in Composer. A change is
+   saved as soon as you make it, and a value the driver can't take is marked at
+   its field. Passwords are set in Composer. See
+   [Driver Properties](#driver-properties) for each one.
 
 ##### Measurements
 

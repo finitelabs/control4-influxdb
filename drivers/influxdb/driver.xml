@@ -70,6 +70,7 @@
         <default/>
         <type>STRING</type>
         <readonly>true</readonly>
+        <description>Whether this driver's DriverCentral license is active.</description>
       </property>
       <!-- #endif -->
       <property>
@@ -80,6 +81,7 @@
           <item>On</item>
         </items>
         <default>On</default>
+        <description>Install new versions of this driver automatically.</description>
       </property>
       <!-- #ifndef DRIVERCENTRAL -->
       <property>
@@ -90,6 +92,7 @@
           <item>Production</item>
           <item>Prerelease</item>
         </items>
+        <description>Production releases only, or prereleases too.</description>
       </property>
       <!-- #endif -->
       <property>
@@ -102,17 +105,20 @@
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
+        <description>What the driver is doing now.</description>
       </property>
       <property>
         <name>Driver Version</name>
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
+        <description>The version installed.</description>
       </property>
       <property>
         <name>Log Level</name>
         <type>DYNAMIC_LIST</type>
         <default>3 - Info</default>
+        <description>How much the driver logs.</description>
       </property>
       <property>
         <name>Log Mode</name>
@@ -124,6 +130,7 @@
           <item>Log</item>
           <item>Print and Log</item>
         </items>
+        <description>Where the log goes: Lua output, the Control4 log, or both.</description>
       </property>
       <!-- #ifdef DRIVERCENTRAL -->
       <property>
@@ -153,7 +160,7 @@
         <name>InfluxDB URL</name>
         <type>STRING</type>
         <default/>
-        <description>InfluxDB server URL (e.g. http://influxdb.local:8086)</description>
+        <description>Your InfluxDB server's address, with its port.</description>
       </property>
       <property>
         <name>API Token</name>
@@ -166,7 +173,7 @@
         <name>Database</name>
         <type>STRING</type>
         <default/>
-        <description>InfluxDB database name</description>
+        <description>The database (bucket) the driver writes to.</description>
       </property>
       <property>
         <name>Write Precision</name>
@@ -178,6 +185,7 @@
           <item>ms</item>
           <item>s</item>
         </items>
+        <description>How precisely each point's time is stored.</description>
       </property>
       <property>
         <name>Default Write Interval</name>
@@ -190,6 +198,7 @@
           <item>5m</item>
           <item>15m</item>
         </items>
+        <description>How often readings are sent, unless a measurement sets its own.</description>
       </property>
       <property>
         <name>Offline Buffer Settings</name>
@@ -207,7 +216,7 @@
           <item>30m</item>
           <item>1h</item>
         </items>
-        <description>Fire Extended Outage event after this duration offline</description>
+        <description>How long writes can fail before Extended Outage fires.</description>
       </property>
     </properties>
     <tabs>

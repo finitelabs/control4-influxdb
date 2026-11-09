@@ -25,6 +25,7 @@ local MeasurementManager = require("lib.measurements")
 local InfluxClient = require("lib.influx_client")
 local transform = require("lib.transform")
 local agents = require("lib.agents")
+local tabProperties = require("lib.tab-properties")
 local values = require("lib.values")
 
 ---------------------------------------------------------------------------
@@ -93,6 +94,20 @@ local function checkConnection()
   end
 end
 
+local statusPushPending = false
+
+--- Sends the tab its status within a second: the write counts can change many times a second.
+local function pushStatusSoon()
+  if statusPushPending then
+    return
+  end
+  statusPushPending = true
+  SetTimer("PageStatus", 1000, function()
+    statusPushPending = false
+    UIR._GET_STATUS()
+  end)
+end
+
 --- Initialize the InfluxWriter batch engine.
 local function initInfluxWriter()
   influxWriter = InfluxWriter:new({
@@ -119,6 +134,7 @@ local function initInfluxWriter()
     onBufferFull = function()
       C4:FireEvent("Buffer Full")
     end,
+    onMetrics = pushStatusSoon,
     isRunning = running,
   })
   log:info("InfluxWriter batch engine initialized")
@@ -229,26 +245,42 @@ local function uiRespond(command, data)
   return JSON:encode(data)
 end
 
---- Send the full measurement configuration to the web UI.
+--- Send the full measurement configuration and the tab's properties to the web UI.
 function UIR._GET_CONFIG()
   log:trace("UIR.GET_CONFIG()")
   local config = measManager:getConfigData()
-  return uiRespond("CONFIG_DATA", { config = JSON:encode(config) })
+  return uiRespond("CONFIG_DATA", {
+    config = JSON:encode(config),
+    properties = JSON:encode(tabProperties:list()),
+  })
 end
 
---- Send connection status and metrics to the web UI.
---- Reads from Properties (source of truth) for connection state.
+--- Set one of the driver's properties, as Composer's Properties tab would.
+--- @param tParams table
+function UIR._SET_PROPERTY(tParams)
+  log:trace("UIR._SET_PROPERTY()")
+  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30=")) or {}
+  local err = tabProperties:set(params.property, params.value)
+  if err then
+    return uiRespond("PROPERTY_ERROR", { property = params.property, error = err })
+  end
+  return UIR._GET_CONFIG()
+end
+
+--- Send the driver's status and write counts to the web UI: Driver Status as Composer shows it.
 function UIR._GET_STATUS()
   log:trace("UIR.GET_STATUS()")
   local metrics = influxWriter and influxWriter:getMetrics() or {}
   local status = {
-    connectionState = influxClient:isConnected() and "Connected" or "Disconnected",
+    driverStatus = Properties["Driver Status"] or "",
     url = Properties["InfluxDB URL"] or "",
     database = Properties["Database"] or "",
+    lastWrite = metrics.lastWriteTimestamp or 0,
     pointsBuffered = metrics.pointsBuffered or 0,
     pointsWritten = metrics.pointsWritten or 0,
     pointsDropped = metrics.pointsDropped or 0,
     writeErrors = metrics.writeErrors or 0,
+    watchdogFires = metrics.watchdogFires or 0,
   }
   return uiRespond("STATUS_DATA", { status = JSON:encode(status) })
 end
@@ -870,6 +902,9 @@ function OnDriverLateInit()
     end
   end, true)
   --#endif
+
+  -- After the load's own property changes, so the tab hears only changes made from here on.
+  tabProperties:follow(UIR._GET_CONFIG)
 
   log:info("InfluxDB Data Logger initialized")
 end
