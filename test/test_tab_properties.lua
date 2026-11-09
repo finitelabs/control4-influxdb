@@ -99,8 +99,10 @@ do
   local xml = fh:read("*a")
   fh:close()
   local shown = {}
-  for tag, text in xml:gmatch("<(%a+)>([^<]*&amp;[^<]*)</%a+>") do
-    if tag == "name" or tag == "default" or tag == "item" or tag == "description" or tag == "display_name" then
+  local SHOWN = { name = true, default = true, item = true, description = true, display_name = true }
+  SHOWN.true_text, SHOWN.false_text = true, true
+  for tag, text in xml:gmatch("<([%w_]+)>([^<]*&amp;[^<]*)</[%w_]+>") do
+    if SHOWN[tag] then
       shown[#shown + 1] = text
     end
   end
