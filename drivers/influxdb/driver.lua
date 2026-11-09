@@ -903,8 +903,12 @@ function OnDriverLateInit()
   end, true)
   --#endif
 
-  -- After the load's own property changes, so the tab hears only changes made from here on.
-  tabProperties:follow(UIR._GET_CONFIG)
+  -- After the load's own property changes, so the tab hears only changes made from here on. The status too: its
+  -- server line shows InfluxDB URL and Database.
+  tabProperties:follow(function()
+    UIR._GET_CONFIG()
+    UIR._GET_STATUS()
+  end)
 
   log:info("InfluxDB Data Logger initialized")
 end

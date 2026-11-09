@@ -127,6 +127,21 @@ do
   OnPropertyChanged("Log Mode")
 end
 
+T.section("A new server or database reaches the status card at once")
+do
+  local mark = #pushes
+  set("Database", "garden")
+  local status
+  for i = mark + 1, #pushes do
+    if pushes[i].command == "STATUS_DATA" then
+      status = JSON:decode(pushes[i].data.status)
+    end
+  end
+  T.truthy("the tab is sent the status", status ~= nil)
+  T.eq("with the new database", status and status.database, "garden")
+  set("Database", "home")
+end
+
 T.section("The status card")
 do
   local status = JSON:decode(JSON:decode(UIR._GET_STATUS()).status)
