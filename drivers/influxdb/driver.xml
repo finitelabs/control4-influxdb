@@ -196,7 +196,7 @@
       <property>
         <name>Offline Buffer Settings</name>
         <type>LABEL</type>
-        <default>Offline Buffer &amp; Retry</default>
+        <default>Offline Buffer and Retry</default>
       </property>
       <property>
         <name>Outage Notification Threshold</name>
