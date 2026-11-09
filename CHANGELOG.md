@@ -20,11 +20,6 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ## Unreleased
 
-### Fixed
-
-- Fixed the Offline Buffer and Retry heading in Composer, which read Offline
-  Buffer Retry.
-
 ### Changed
 
 - Changed the Settings tab to show the driver's properties under its status, in
