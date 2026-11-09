@@ -928,8 +928,6 @@ function resolveCurrentValue(mapping) {
   return String(raw);
 }
 
-// s||'' would blank out 0 and false, which is how every preview of a value that
-// computed to 0 rendered as a bare "=" with nothing after it.
 // Unique per name and never holding __, since an id joins two of these and splits on __.
 function escId(s) { return str(s).replace(/[^a-zA-Z0-9]/g,function(c){return '_'+('000'+c.charCodeAt(0).toString(16)).slice(-4);}); }
 function unescId(id) {
