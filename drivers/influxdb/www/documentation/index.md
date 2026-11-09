@@ -149,19 +149,28 @@ next to the "Properties", "Actions", "Documentation", and "Lua" tabs.
 
 #### Settings
 
-The Settings tab contains two views:
+The Settings tab contains three views:
 
 ##### Status
 
 Shows what the driver is doing, what it logs, and its properties.
 
-<img alt="Status" src="./images/ui-status.png" width="500"/>
+<!-- #ifdef DRIVERCENTRAL -->
 
-1. **Driver Status** - the same status Composer shows, with the InfluxDB URL,
-   the database, and the time of the last write.
-1. **Counts** - how many measurements and readings are set up on the
-   Measurements view, then the points written, points waiting to be sent, points
-   dropped, write errors, and watchdog fires since the driver started.
+<img alt="Status" src="./images/ui-status-drivercentral.png" width="640"/>
+
+<!-- #else -->
+
+<img alt="Status" src="./images/ui-status.png" width="640"/>
+
+<!-- #endif -->
+
+1. **Status** - the driver's status, as Composer's Driver Status shows it, with
+   the InfluxDB URL, the database, and the time of the last write.
+1. **Measurements / Readings / Points written / Buffered / Dropped / Write
+   errors / Watchdog fires** - how many measurements and readings are set up on
+   the Measurements view, then the points written, waiting to be sent and
+   dropped, the write errors and the watchdog fires since the driver started.
 1. **Properties** - the driver's properties, grouped as in Composer. A change is
    saved as soon as you make it, and a value the driver can't take is marked at
    its field. Passwords are set in Composer. See
@@ -171,7 +180,7 @@ Shows what the driver is doing, what it logs, and its properties.
 
 Configure measurements, schemas, and per-device readings.
 
-<img alt="Measurements" src="./images/ui-measurements.png" width="500"/>
+<img alt="Measurements" src="./images/ui-measurements.png" width="640"/>
 
 1. **+ Add Measurement** - create a new measurement (the name becomes the
    InfluxDB table name)
@@ -185,7 +194,7 @@ Click a measurement name in the list to open the editor. The editor lets you
 define the schema, configure write settings, and map device variables to each
 column.
 
-<img alt="Measurement Editor" src="./images/ui-measurement-editor.png" width="500"/>
+<img alt="Measurement Editor" src="./images/ui-measurement-editor.png" width="640"/>
 
 1. **Back to Measurements** - return to the list view
 1. **Schema** - define the InfluxDB columns. Add **fields** (numeric data like

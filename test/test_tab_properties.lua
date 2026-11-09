@@ -76,17 +76,20 @@ do
   )
   T.eq("the outage threshold, under its label", names["Outage Notification Threshold"].group, "Offline Buffer & Retry")
   T.eq("API Token stays in Composer", names["API Token"], nil)
+  T.excludes("and its value never reaches the tab's config", UIR._GET_CONFIG(), "throwaway")
+  T.excludes("or its status", UIR._GET_STATUS(), "throwaway")
   T.eq("and so does the Support Code", names["Support Code"], nil)
   T.eq("Driver Status is read-only", names["Driver Status"].readonly, true)
   T.eq("Write Precision offers its choices", names["Write Precision"].choices, { "ns", "us", "ms", "s" })
   T.truthy("Log Level offers the logger's levels", #(names["Log Level"].choices or {}) >= 4)
   local missing = {}
   for name, p in pairs(names) do
-    if not p.description or p.description == "" or #p.description > 80 then
+    local own = p.group == "InfluxDB Connection" or p.group == "Offline Buffer & Retry"
+    if own and (not p.description or p.description == "" or #p.description > 80) then
       missing[#missing + 1] = name
     end
   end
-  T.eq("every property has a short description", missing, {})
+  T.eq("every InfluxDB setting has a short description", missing, {})
 end
 
 T.section("A change from the tab")
@@ -109,8 +112,9 @@ T.section("Changes the tab is turned away from")
 do
   local reply = set("Write Precision", "minutes")
   T.eq("a value the list doesn't have", reply._command, "PROPERTY_ERROR")
-  T.eq("names the property", reply.property, "Write Precision")
-  T.truthy("and says why", (reply.error or "") ~= "", reply.error)
+  local refusal = JSON:decode(reply.payload or "{}")
+  T.eq("names the property, in one JSON string", refusal.property, "Write Precision")
+  T.truthy("and says why", (refusal.error or "") ~= "", refusal.error)
   T.eq("and the property keeps its value", Properties["Write Precision"], "ms")
   T.eq("a read-only property", set("Driver Status", "Fine")._command, "PROPERTY_ERROR")
   T.eq("a password", set("API Token", "x")._command, "PROPERTY_ERROR")
@@ -171,6 +175,27 @@ do
   )
   T.eq("no Settings tab", page:find('data-panel="settings"', 1, true), nil)
   T.truthy("a Properties card on the Status tab", page:find('id="props-card"', 1, true) ~= nil)
+end
+
+T.section("A Support Code changes Log Level's list")
+do
+  -- No secret in a test build, so the code's own change is told directly.
+  local mark = #pushes
+  require("lib.support-code"):_tell(true)
+  T.eq("the tab is sent the config", pushed("CONFIG_DATA", mark), 1)
+end
+
+T.section("Nothing reaches the tab once the driver is destroyed")
+do
+  watts = watts + 1
+  OnWatchedVariableChanged(common.SENSOR, 1000, tostring(watts))
+  cloud.poll(1)
+  ShimFireTimers()
+  local mark = #pushes
+  OnDriverDestroyed()
+  ShimFireTimers()
+  ShimFireTimers()
+  T.eq("no status push, the pending one included", pushed("STATUS_DATA", mark), 0)
 end
 
 T.finish()

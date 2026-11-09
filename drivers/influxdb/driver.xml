@@ -70,7 +70,6 @@
         <default/>
         <type>STRING</type>
         <readonly>true</readonly>
-        <description>Whether this driver's DriverCentral license is active.</description>
       </property>
       <!-- #endif -->
       <property>
@@ -81,7 +80,6 @@
           <item>On</item>
         </items>
         <default>On</default>
-        <description>Install new versions of this driver automatically.</description>
       </property>
       <!-- #ifndef DRIVERCENTRAL -->
       <property>
@@ -92,7 +90,6 @@
           <item>Production</item>
           <item>Prerelease</item>
         </items>
-        <description>Production releases only, or prereleases too.</description>
       </property>
       <!-- #endif -->
       <property>
@@ -105,20 +102,17 @@
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
-        <description>What the driver is doing now.</description>
       </property>
       <property>
         <name>Driver Version</name>
         <type>STRING</type>
         <default/>
         <readonly>true</readonly>
-        <description>The version installed.</description>
       </property>
       <property>
         <name>Log Level</name>
         <type>DYNAMIC_LIST</type>
         <default>3 - Info</default>
-        <description>How much the driver logs.</description>
       </property>
       <property>
         <name>Log Mode</name>
@@ -130,7 +124,6 @@
           <item>Log</item>
           <item>Print and Log</item>
         </items>
-        <description>Where the log goes: Lua output, the Control4 log, or both.</description>
       </property>
       <!-- #ifdef DRIVERCENTRAL -->
       <property>

@@ -102,7 +102,7 @@ local function pushStatusSoon()
     return
   end
   statusPushPending = true
-  SetTimer("PageStatus", 1000, function()
+  SetTimer("PageStatus", ONE_SECOND, function()
     statusPushPending = false
     UIR._GET_STATUS()
   end)
@@ -262,7 +262,7 @@ function UIR._SET_PROPERTY(tParams)
   local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30=")) or {}
   local err = tabProperties:set(params.property, params.value)
   if err then
-    return uiRespond("PROPERTY_ERROR", { property = params.property, error = err })
+    return uiRespond("PROPERTY_ERROR", { payload = JSON:encode({ property = params.property, error = err }) })
   end
   return UIR._GET_CONFIG()
 end
@@ -909,6 +909,12 @@ function OnDriverLateInit()
     UIR._GET_CONFIG()
     UIR._GET_STATUS()
   end)
+  --#ifdef DRIVERCENTRAL
+  -- A Support Code widens Log Level's list, and its hour's end narrows it, with no property handler running.
+  supportCode:onChange(function()
+    UIR._GET_CONFIG()
+  end)
+  --#endif
 
   log:info("InfluxDB Data Logger initialized")
 end
@@ -924,6 +930,7 @@ function OnDriverDestroyed()
   if influxWriter then
     influxWriter:shutdown()
   end
+  CancelTimer("PageStatus")
 end
 
 --- Handle removal of a device from the Control4 project.

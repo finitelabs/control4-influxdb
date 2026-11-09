@@ -92,19 +92,20 @@ next to the "Properties", "Actions", "Documentation", and "Lua" tabs.
 
 #### Settings
 
-The Settings tab contains two views:
+The Settings tab contains three views:
 
 ##### Status
 
 Shows what the driver is doing, what it logs, and its properties.
 
-<img alt="Status" src="./images/ui-status.png" width="500"/>
+<img alt="Status" src="./images/ui-status.png" width="640"/>
 
-1. **Driver Status** - the same status Composer shows, with the InfluxDB URL,
-   the database, and the time of the last write.
-1. **Counts** - how many measurements and readings are set up on the
-   Measurements view, then the points written, points waiting to be sent, points
-   dropped, write errors, and watchdog fires since the driver started.
+1. **Status** - the driver's status, as Composer's Driver Status shows it, with
+   the InfluxDB URL, the database, and the time of the last write.
+1. **Measurements / Readings / Points written / Buffered / Dropped / Write
+   errors / Watchdog fires** - how many measurements and readings are set up on
+   the Measurements view, then the points written, waiting to be sent and
+   dropped, the write errors and the watchdog fires since the driver started.
 1. **Properties** - the driver's properties, grouped as in Composer. A change is
    saved as soon as you make it, and a value the driver can't take is marked at
    its field. Passwords are set in Composer. See
@@ -114,7 +115,7 @@ Shows what the driver is doing, what it logs, and its properties.
 
 Configure measurements, schemas, and per-device readings.
 
-<img alt="Measurements" src="./images/ui-measurements.png" width="500"/>
+<img alt="Measurements" src="./images/ui-measurements.png" width="640"/>
 
 1. **+ Add Measurement** - create a new measurement (the name becomes the
    InfluxDB table name)
@@ -128,7 +129,7 @@ Click a measurement name in the list to open the editor. The editor lets you
 define the schema, configure write settings, and map device variables to each
 column.
 
-<img alt="Measurement Editor" src="./images/ui-measurement-editor.png" width="500"/>
+<img alt="Measurement Editor" src="./images/ui-measurement-editor.png" width="640"/>
 
 1. **Back to Measurements** - return to the list view
 1. **Schema** - define the InfluxDB columns. Add **fields** (numeric data like
@@ -330,11 +331,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   `5 - Trace` and `6 - Ultra` are offered only while a Support Code from Finite
   Labs support has the Lua tab open, and a driver set to either goes back to
   `4 - Debug`.
-- Changed the Settings tab's Status view to show the driver's properties with
-  its status, in place of a separate Settings view. It shows Driver Status as
-  Composer does and counts the measurements and readings set up, and each
-  property is saved as soon as it changes. Every property now has a short
-  description, in Composer too.
+- Changed the Settings tab's Status view to show the driver's properties under
+  its status in place of a separate Settings view, each saved as soon as it
+  changes.
+- Changed the Status view to show Driver Status as Composer does, with the time
+  of the last write and how many measurements and readings are set up.
+- Added a short description to each InfluxDB connection and retry property in
+  Composer.
 
 ## v20261107 - 2026-11-07
 

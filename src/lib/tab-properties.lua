@@ -6,12 +6,21 @@ require("drivers-common-public.global.lib")
 
 local log = require("lib.logging")
 
+local SHOWN_TYPES = { LIST = true, STRING = true }
+
+--- @class TabProperty
+--- @field name string The property's name in driver.xml.
+--- @field group string The label above it in Composer, or "" before the first label.
+--- @field readonly boolean Whether only the driver sets it.
+--- @field description? string Its driver.xml description.
+--- @field value? string Its current value, in what `list` returns.
+--- @field choices? string[] A list's items, or the logger's levels for Log Level.
+--- @field logLevels? boolean Set on Log Level, whose choices come from the logger.
+
 --- @class TabProperties
---- @field private _config table[]|nil
+--- @field private _config TabProperty[]|nil The properties the tab shows, read once from driver.xml.
 local TabProperties = {}
 TabProperties.__index = TabProperties
-
-local SHOWN_TYPES = { LIST = true, STRING = true, RANGED_INTEGER = true }
 
 --- Creates a new `TabProperties` instance.
 --- @return TabProperties tabProperties A new `TabProperties` instance.
@@ -20,7 +29,7 @@ function TabProperties:new()
 end
 
 --- @private
---- @return table[] config Each property the tab shows, in driver.xml order.
+--- @return TabProperty[] config Each property the tab shows, in driver.xml order.
 function TabProperties:_read()
   if self._config then
     return self._config
@@ -50,9 +59,6 @@ function TabProperties:_read()
         for item in XMLgCapture(xml, "item") do
           table.insert(property.choices, XMLDecode(item))
         end
-      elseif kind == "RANGED_INTEGER" then
-        property.minimum = tonumber(XMLCapture(xml, "minimum"))
-        property.maximum = tonumber(XMLCapture(xml, "maximum"))
       end
       table.insert(self._config, property)
     end
@@ -60,8 +66,8 @@ function TabProperties:_read()
   return self._config
 end
 
---- @return table[] properties Each property the tab shows, with its current value: name, group (the label above it),
---- readonly, description, value, a list's choices, and a ranged integer's minimum and maximum.
+--- Lists the properties the tab shows, each with its current value.
+--- @return TabProperty[] properties In driver.xml order; Log Level's choices are the logger's levels now.
 function TabProperties:list()
   local properties = {}
   for _, config in ipairs(self:_read()) do
@@ -79,7 +85,7 @@ function TabProperties:list()
 end
 
 --- @private
---- @param config table
+--- @param config TabProperty
 --- @param value string
 --- @return string|nil value The value to set, or nil when the property cannot hold it.
 --- @return string|nil err Why not.
@@ -92,13 +98,6 @@ local function checked(config, value)
       end
     end
     return nil, string.format("%s has no choice %s.", config.name, value)
-  end
-  if config.minimum then
-    local number = tonumber(value)
-    if not number or math.floor(number) ~= number or number < config.minimum or number > config.maximum then
-      return nil, string.format("%s must be a whole number from %d to %d.", config.name, config.minimum, config.maximum)
-    end
-    return string.format("%d", number)
   end
   return value
 end
@@ -123,7 +122,7 @@ end
 
 --- Calls `push` after each change to a property the tab shows, wherever it was made. Call it once the load's own
 --- property changes have run, at the end of OnDriverLateInit.
---- @param push fun()
+--- @param push fun() Sends the tab what it shows.
 function TabProperties:follow(push)
   for _, config in ipairs(self:_read()) do
     local key = config.name:gsub("%W", "_"):gsub("_+", "_"):gsub("^_", ""):gsub("_$", "")

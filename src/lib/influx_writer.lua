@@ -4,6 +4,9 @@ local log = require("lib.logging")
 local constants = require("constants")
 local Deferred = require("deferred")
 local values = require("lib.values")
+--#ifdef DRIVERCENTRAL
+local diagnostics = require("lib.diagnostics")
+--#endif
 
 require("lib.utils")
 
@@ -419,8 +422,15 @@ function InfluxWriter:_updateMetricVariables()
   values:update("INFLUX_WRITE_ERRORS", m.writeErrors, "INT")
   values:update("INFLUX_WATCHDOG_FIRES", m.watchdogFires, "INT")
   values:update("INFLUX_LAST_WRITE_TS", m.lastWriteTimestamp > 0 and m.lastWriteTimestamp or "", "STRING")
-  if self._onMetrics then
-    pcall(self._onMetrics)
+  -- Not once shutdown starts: its last flushes still change the counts, and teardown must not re-arm a timer.
+  if self._onMetrics and not self._shuttingDown then
+    local ok, err = pcall(self._onMetrics)
+    if not ok then
+      log:error("InfluxWriter: onMetrics failed: %s", tostring(err))
+      --#ifdef DRIVERCENTRAL
+      diagnostics:captureError(tostring(err), nil, "InfluxWriter.onMetrics")
+      --#endif
+    end
   end
 end
 

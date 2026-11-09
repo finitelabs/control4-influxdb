@@ -26,11 +26,13 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   `5 - Trace` and `6 - Ultra` are offered only while a Support Code from Finite
   Labs support has the Lua tab open, and a driver set to either goes back to
   `4 - Debug`.
-- Changed the Settings tab's Status view to show the driver's properties with
-  its status, in place of a separate Settings view. It shows Driver Status as
-  Composer does and counts the measurements and readings set up, and each
-  property is saved as soon as it changes. Every property now has a short
-  description, in Composer too.
+- Changed the Settings tab's Status view to show the driver's properties under
+  its status in place of a separate Settings view, each saved as soon as it
+  changes.
+- Changed the Status view to show Driver Status as Composer does, with the time
+  of the last write and how many measurements and readings are set up.
+- Added a short description to each InfluxDB connection and retry property in
+  Composer.
 
 ## v20261107 - 2026-11-07
 

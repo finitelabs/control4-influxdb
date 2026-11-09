@@ -37,6 +37,9 @@
     .nav {
       display: none;
       align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 5;
       background: var(--surface);
       border-bottom: 1px solid var(--border);
       padding: 0 16px;
@@ -561,7 +564,10 @@ function handleDriverData(cmd, params) {
       onConfigLoaded(JSON.parse(params.config || '{}'));
       if (params.properties) onProperties(JSON.parse(params.properties));
     }
-    else if (cmd === 'PROPERTY_ERROR') onPropertyError(params.property, params.error || '');
+    else if (cmd === 'PROPERTY_ERROR') {
+      var refusal = JSON.parse(params.payload || '{}');
+      onPropertyError(refusal.property, refusal.error || '');
+    }
     else if (cmd === 'STATUS_DATA') onStatusLoaded(JSON.parse(params.status || '{}'));
     else if (cmd === 'DEVICES_DATA') onDevicesLoaded(JSON.parse(params.devices || '[]'));
     else if (cmd === 'DEVICE_VARIABLES_DATA') onDeviceVariablesLoaded(params.deviceId, JSON.parse(params.variables || '[]'));
@@ -660,9 +666,6 @@ function propControl(p, id, failed) {
     return '<select' + attrs + '>' + p.choices.map(function(c) {
       return '<option' + (c === p.value ? ' selected' : '') + '>' + esc(c) + '</option>';
     }).join('') + '</select>';
-  }
-  if (p.minimum !== undefined) {
-    return '<input type="number"' + attrs + ' min="' + p.minimum + '" max="' + p.maximum + '" step="1" value="' + esc(p.value) + '">';
   }
   return '<input type="text"' + attrs + ' value="' + esc(p.value) + '">';
 }
@@ -1436,28 +1439,22 @@ function loadDemo() {
     writeErrors: 0, watchdogFires: 0 });
   onProperties([
     // #ifdef DRIVERCENTRAL
-    { name: 'Cloud Status', group: 'Cloud Settings', readonly: true, value: 'License Activated',
-      description: "Whether this driver's DriverCentral license is active." },
+    { name: 'Cloud Status', group: 'Cloud Settings', readonly: true, value: 'License Activated' },
     // #endif
-    { name: 'Automatic Updates', group: 'Cloud Settings', value: 'On', choices: ['Off', 'On'],
-      description: 'Install new versions of this driver automatically.' },
+    { name: 'Automatic Updates', group: 'Cloud Settings', value: 'On', choices: ['Off', 'On'] },
     // #ifndef DRIVERCENTRAL
-    { name: 'Update Channel', group: 'Cloud Settings', value: 'Production', choices: ['Production', 'Prerelease'],
-      description: 'Production releases only, or prereleases too.' },
+    { name: 'Update Channel', group: 'Cloud Settings', value: 'Production', choices: ['Production', 'Prerelease'] },
     // #endif
-    { name: 'Driver Status', group: 'Driver Settings', readonly: true, value: 'Connected',
-      description: 'What the driver is doing now.' },
-    { name: 'Driver Version', group: 'Driver Settings', readonly: true, value: '20261107',
-      description: 'The version installed.' },
+    { name: 'Driver Status', group: 'Driver Settings', readonly: true, value: 'Connected' },
+    { name: 'Driver Version', group: 'Driver Settings', readonly: true, value: '20261107' },
     { name: 'Log Level', group: 'Driver Settings', value: '3 - Info',
       // #ifdef DRIVERCENTRAL
-      choices: ['0 - Fatal', '1 - Error', '2 - Warning', '3 - Info', '4 - Debug'],
+      choices: ['0 - Fatal', '1 - Error', '2 - Warning', '3 - Info', '4 - Debug']
       // #else
-      choices: ['0 - Fatal', '1 - Error', '2 - Warning', '3 - Info', '4 - Debug', '5 - Trace', '6 - Ultra'],
+      choices: ['0 - Fatal', '1 - Error', '2 - Warning', '3 - Info', '4 - Debug', '5 - Trace', '6 - Ultra']
       // #endif
-      description: 'How much the driver logs.' },
-    { name: 'Log Mode', group: 'Driver Settings', value: 'Off', choices: ['Off', 'Print', 'Log', 'Print and Log'],
-      description: 'Where the log goes: Lua output, the Control4 log, or both.' },
+    },
+    { name: 'Log Mode', group: 'Driver Settings', value: 'Off', choices: ['Off', 'Print', 'Log', 'Print and Log'] },
     // #ifdef DRIVERCENTRAL
     { name: 'Cloud Monitoring', group: 'Driver Settings', value: 'Enabled', choices: ['Disabled', 'Enabled'],
       description: 'Sends memory and error reports to Finite Labs so we can fix driver problems.' },
