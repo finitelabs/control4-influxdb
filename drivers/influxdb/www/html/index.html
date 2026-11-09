@@ -7,15 +7,35 @@
   <style>
 <!-- #embed ../../../../src/lib/ui/style.css -->
 
+
+    label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 3px; font-weight: 500; }
+    input[type="text"], input[type="password"], select {
+      width: 100%;
+      padding: 6px 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 13px;
+      font-family: var(--font);
+      margin-bottom: 10px;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+    input:read-only { background: var(--bg); color: var(--text-muted); }
+
     /* Scroll inside the card only on narrow panes. Fixed layout keeps the
        declared column widths so a long name ellipsizes rather than pushing the
        Delete button past the wrapper, which has nothing to scroll. */
     .table-wrap { overflow-x: hidden; }
-    table { table-layout: fixed; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     @media (max-width: 640px) {
       .table-wrap { overflow-x: auto; }
       table { min-width: 520px; }
     }
+    th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+    th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-weight: 600; }
+    tr:hover td { background: var(--surface-hover); }
 
     .chip {
       display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
@@ -41,7 +61,18 @@
     .status-dot.reconnecting { background: var(--warning); }
 
     .flex { display: flex; }
+    .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
     .gap-8 { gap: 8px; }
+    .mb-8 { margin-bottom: 8px; }
+    .mb-12 { margin-bottom: 12px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    @media (max-width: 560px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+    .empty { text-align: center; padding: 30px 16px; color: var(--text-muted); font-size: 12px; }
+
+    .back-link { color: var(--accent); cursor: pointer; font-size: 12px; margin-bottom: 10px; display: inline-block; }
+    .back-link:hover { text-decoration: underline; }
 
     .prop-group { margin-bottom: 14px; }
     .prop-group h3 { border-bottom: 1px solid var(--border); padding-bottom: 6px; }
@@ -73,7 +104,10 @@
       .mapping-row .mapping-transform { grid-column: 2 / 4; }
       .mapping-row .mapping-preview { grid-column: 4 / 5; }
     }
+    .input-error { border-color: var(--danger) !important; }
     .input-valid { border-color: var(--success) !important; }
+    .error-text { color: var(--danger); font-size: 11px; margin-top: -8px; margin-bottom: 8px; }
+    .hint { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4; }
     .help-icon {
       display: inline-flex; align-items: center; justify-content: center;
       width: 16px; height: 16px; border-radius: 50%; background: var(--border);
@@ -150,12 +184,8 @@
       border-top: 1px solid var(--border);
     }
     .search-select-list > .search-select-section:first-child { border-top: none; }
-    .readings { display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 8px; }
-    .reading { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; background: var(--surface); min-width: 0; }
-    .reading .k { color: var(--text-muted); font-size: 11px; }
-    .reading .v { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
-    .reading.config { background: var(--bg); }
-    .pfields input:disabled { background: var(--bg); color: var(--text-muted); }
+
+    .input-error { border-color: var(--danger) !important; }
   </style>
 </head>
 <body>
@@ -171,27 +201,27 @@
 <div id="panel-status" class="panel active">
   <div class="card">
     <h3>Status</h3>
-    <div class="summary-row">
-      <span id="status-pill" class="pill pending">Loading</span>
-      <span class="muted" id="status-server"></span>
-      <span class="muted" id="status-last"></span>
+    <div class="kit-summary">
+      <span id="status-pill" class="kit-pill pending">Loading</span>
+      <span class="kit-muted" id="status-server"></span>
+      <span class="kit-muted" id="status-last"></span>
     </div>
-    <div class="readings">
-      <div class="reading config"><div class="k">Measurements</div><div class="v" id="count-measurements">0</div></div>
-      <div class="reading config"><div class="k">Readings</div><div class="v" id="count-readings">0</div></div>
-      <div class="reading"><div class="k">Points written</div><div class="v" id="metric-written">0</div></div>
-      <div class="reading"><div class="k">Buffered</div><div class="v" id="metric-buffered">0</div></div>
-      <div class="reading"><div class="k">Dropped</div><div class="v" id="metric-dropped">0</div></div>
-      <div class="reading"><div class="k">Write errors</div><div class="v" id="metric-errors">0</div></div>
-      <div class="reading"><div class="k">Watchdog fires</div><div class="v" id="metric-watchdog">0</div></div>
+    <div class="kit-tiles">
+      <div class="kit-tile config"><div class="k">Measurements</div><div class="v" id="count-measurements">0</div></div>
+      <div class="kit-tile config"><div class="k">Readings</div><div class="v" id="count-readings">0</div></div>
+      <div class="kit-tile"><div class="k">Points written</div><div class="v" id="metric-written">0</div></div>
+      <div class="kit-tile"><div class="k">Buffered</div><div class="v" id="metric-buffered">0</div></div>
+      <div class="kit-tile"><div class="k">Dropped</div><div class="v" id="metric-dropped">0</div></div>
+      <div class="kit-tile"><div class="k">Write errors</div><div class="v" id="metric-errors">0</div></div>
+      <div class="kit-tile"><div class="k">Watchdog fires</div><div class="v" id="metric-watchdog">0</div></div>
     </div>
   </div>
   <div class="card" id="props-card" hidden>
     <h3>Properties</h3>
     <!-- #ifdef DRIVERCENTRAL -->
-    <p class="note">The driver's properties, as in Composer. API Token and Support Code are set in Composer.</p>
+    <p class="kit-props-note">The driver's properties, as in Composer. API Token and Support Code are set in Composer.</p>
     <!-- #else -->
-    <p class="note">The driver's properties, as in Composer. API Token is set in Composer.</p>
+    <p class="kit-props-note">The driver's properties, as in Composer. API Token is set in Composer.</p>
     <!-- #endif -->
     <div id="props"></div>
   </div>
@@ -301,6 +331,7 @@
 
 <script>
 <!-- #embed ../../../../src/lib/ui/page.js -->
+var sendCommand = Kit.sendCommand, gApiHost = Kit.apiHost, gDriverId = Kit.driverId;
 
 
 
@@ -345,7 +376,7 @@ function onTabSwitch(panelName) {
   updateHash();
 }
 
-initTabs(onTabSwitch);
+Kit.initTabs(onTabSwitch);
 
 // Restore view from URL hash on load
 var gInitialHash = location.hash.replace('#', '');
@@ -353,7 +384,7 @@ function restoreHash() {
   if (!gInitialHash) return;
   var parts = gInitialHash.split('/');
   var tab = parts[0];
-  if (document.getElementById('panel-' + tab)) switchTab(tab);
+  if (document.getElementById('panel-' + tab)) Kit.switchTab(tab);
   if (tab === 'measurements' && parts[1]) {
     var measName = decodeURIComponent(parts[1]);
     gEditingMeas = measName;
@@ -367,10 +398,10 @@ restoreHash();
 // Init
 // ============================================================
 function init() {
-  initPropertiesCard(document.getElementById('props'));
-  if (demoMode(demoCommand)) { loadDemo(); return; }
+  Kit.initPropertiesCard(document.getElementById('props'));
+  if (Kit.demoMode(demoCommand)) { loadDemo(); return; }
   // The driver pushes the status after each change, and the config after each property change.
-  connectDriver({
+  Kit.connectDriver({
     handlers: DRIVER_HANDLERS,
     onProperty: function (name, value) { if (name === 'Driver Status') setStatusPill(value); },
     onConnect: function () {
@@ -391,7 +422,7 @@ var PENDING_STATUSES = { 'Not configured': 1, 'No URL configured': 1, 'Incomplet
 function setStatusPill(text) {
   var pill = document.getElementById('status-pill');
   pill.textContent = text || 'Loading';
-  pill.className = 'pill ' + (text === 'Connected' ? 'online' : PENDING_STATUSES[text || 'Loading'] ? 'pending' : 'offline');
+  pill.className = 'kit-pill ' + (text === 'Connected' ? 'online' : PENDING_STATUSES[text || 'Loading'] ? 'pending' : 'offline');
 }
 
 function lastWriteText(seconds) {
@@ -928,6 +959,10 @@ function resolveCurrentValue(mapping) {
   return String(raw);
 }
 
+// s||'' would blank out 0 and false, which is how every preview of a value that
+// computed to 0 rendered as a bare "=" with nothing after it.
+function str(s) { return (s === null || s === undefined) ? '' : String(s); }
+function esc(s) { return str(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 // Unique per name and never holding __, since an id joins two of these and splits on __.
 function escId(s) { return str(s).replace(/[^a-zA-Z0-9]/g,function(c){return '_'+('000'+c.charCodeAt(0).toString(16)).slice(-4);}); }
 function unescId(id) {
@@ -1099,7 +1134,7 @@ function loadDemo() {
   onStatusLoaded({ driverStatus: 'Connected', url: 'http://influxdb.example.invalid:8086', database: 'home',
     lastWrite: Math.floor(Date.now() / 1000) - 29, pointsWritten: 18412, pointsBuffered: 12, pointsDropped: 0,
     writeErrors: 0, watchdogFires: 0 });
-  showProperties([
+  Kit.showProperties([
     // #ifdef DRIVERCENTRAL
     { name: 'Cloud Status', group: 'Cloud Settings', readonly: true, value: 'License Activated' },
     // #endif

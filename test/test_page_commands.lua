@@ -38,7 +38,7 @@ end
 --- @param params table
 --- @return table tParams
 local function fromPage(params)
-  local expression = assert(kit:match("function encodeParams%(params%) {\n  return (.-);\n}"), "no encodeParams")
+  local expression = assert(kit:match("function encodeParams%(params%) {%s*return (.-);%s*}"), "no encodeParams")
   local path = os.tmpname()
   local file = assert(io.open(path, "w"))
   file:write("const params = ", JSON:encode(params), ";\nprocess.stdout.write(", expression, ");\n")
