@@ -2,11 +2,14 @@
 
 ## Overview
 
+*This software is neither affiliated with nor endorsed by either Control4 or
+InfluxData.*
+
 Keep a history of your Control4 project in InfluxDB. The driver logs the
 Control4 variables you choose to an InfluxDB 3 database the controller can
 reach, so you can chart them and look back over weeks and months.
 
-You set it up in the driver's own Composer tab: group readings into
+You set it up in the driver's own Composer tab. Group readings into
 measurements, pick each device's variable from a searchable list, and see each
 value as it will be written. The driver writes in batches and holds what it
 cannot send during an outage, sending it once InfluxDB is back.
