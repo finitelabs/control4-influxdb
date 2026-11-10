@@ -44,9 +44,9 @@
       font-size: 12px;
     }
     .mapping-row:last-child { border-bottom: none; }
-    /* A reading's controls are a size down from the house fields, to fit a row. */
-    .mapping-row > select, .mapping-row > input, .reading-head select { padding: 3px 6px; font-size: 12px; min-width: 0; }
-    .mapping-row > select, .reading-head select { padding-right: 22px; background-position: right 7px center; }
+    /* A reading's fields are the kit's compact ones: in the row's grid they shrink to their column, and in its head
+       the select takes its text's width. */
+    .mapping-row > select, .mapping-row > input { min-width: 0; }
     .reading-head select { width: auto; }
     .mapping-row .search-select { min-width: 0; }
     .mapping-span2 { grid-column: span 2; }
@@ -61,15 +61,15 @@
       .mapping-row .mapping-preview { grid-column: 4 / 5; }
     }
 
-    /* Searchable dropdown: its trigger looks like a reading's select. */
+    /* Searchable dropdown: its trigger is a div drawn as a compact select. */
     .search-select { position: relative; display: inline-block; }
     /* Lift the whole control while open so its popup clears sibling cards. */
     .search-select.open { z-index: 60; }
     .search-select-trigger {
-      width: 100%; padding: 3px 22px 3px 6px; font-size: 12px; line-height: 18px;
+      width: 100%; padding: 4px 24px 4px 7px; font-size: 12px; line-height: 18px;
       border: 1px solid var(--border); border-radius: var(--radius);
-      background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 7px center;
-      background-size: 10px 6px;
+      background-color: var(--surface); background-image: var(--chevron);
+      background-repeat: no-repeat; background-position: right 7px center; background-size: 10px 6px;
       cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       color: var(--text);
     }
@@ -524,7 +524,7 @@ function renderReadings(measName, meas) {
     html += '<div class="search-select-trigger placeholder" onclick="openDeviceSearch(\'dt_'+eid+'\',true)" data-devid="" id="devin_dt_'+eid+'">+ Device Tags...</div>';
     html += '<div class="search-select-popup"><input type="text" class="search-select-search" placeholder="Search..." oninput="filterDeviceSearch(\'dt_'+eid+'\',this.value,true)"/>';
     html += '<div class="search-select-list" id="devlist_dt_'+eid+'"></div></div></div>';
-    html += '<select onchange="toggleReadingEnabled(\''+eid+'\',this.value)" title="Enable/disable this reading">';
+    html += '<select class="sm" onchange="toggleReadingEnabled(\''+eid+'\',this.value)" title="Enable/disable this reading">';
     html += '<option value="true"'+(reading.enabled!==false?' selected':'')+'>Enabled</option>';
     html += '<option value="false"'+(reading.enabled===false?' selected':'')+'>Disabled</option></select>';
     html += '<button class="btn btn-danger btn-sm" onclick="removeReading(\''+eid+'\')">Remove</button>';
@@ -543,7 +543,7 @@ function renderReadings(measName, meas) {
         '<span class="chip-label">'+Kit.esc(defName)+'</span></span>';
 
       // Col 2: Source selector
-      html += '<select id="src_'+mid+'" onchange="onSourceChange(\''+eid+'\',\''+escId(defName)+'\')">';
+      html += '<select class="sm" id="src_'+mid+'" onchange="onSourceChange(\''+eid+'\',\''+escId(defName)+'\')">';
       html += '<option value="">--</option><option value="variable"'+(source==='variable'?' selected':'')+'>Variable</option>';
       html += '<option value="literal"'+(source==='literal'?' selected':'')+'>Literal</option></select>';
 
@@ -564,13 +564,13 @@ function renderReadings(measName, meas) {
         html += ' title="'+Kit.esc(selVarLabel)+'" id="varin_'+mid+'">'+Kit.esc(selVarLabel || 'Variable...')+'</div>';
         html += '<div class="search-select-popup"><div class="search-select-list" id="varlist_'+mid+'"></div></div></div>';
       } else if (source === 'literal') {
-        html += '<input type="text" class="mapping-span2" id="lit_'+mid+'" value="'+Kit.esc(mapping.literal||'')+'" placeholder="Value" onchange="onLitChange(\''+eid+'\',\''+escId(defName)+'\')"/>';
+        html += '<input type="text" class="mapping-span2 sm" id="lit_'+mid+'" value="'+Kit.esc(mapping.literal||'')+'" placeholder="Value" onchange="onLitChange(\''+eid+'\',\''+escId(defName)+'\')"/>';
       } else {
         html += '<span class="mapping-span2" style="color:var(--text-muted);font-size:11px;">Not mapped</span>';
       }
 
       // Col 4: Transform
-      html += '<input type="text" class="mapping-transform" id="tfm_'+mid+'" value="'+Kit.esc(mapping.transform||'')+'" placeholder="Transform"';
+      html += '<input type="text" class="mapping-transform sm" id="tfm_'+mid+'" value="'+Kit.esc(mapping.transform||'')+'" placeholder="Transform"';
       html += ' oninput="onTransformInput(\''+mid+'\',\''+eid+'\',\''+escId(defName)+'\')"';
       html += ' onchange="onTransformChange(\''+eid+'\',\''+escId(defName)+'\')"';
       html += ' title="'+Kit.esc(mapping.transform || 'e.g. value*100, device_name(value)')+'"/>';
