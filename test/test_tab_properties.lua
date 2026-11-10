@@ -226,6 +226,12 @@ do
   T.truthy("the card's next ask offers Trace and Ultra", #property("Log Level").choices > closed)
   code:_allowLevels(false)
   T.eq("and the one after the hour's end stops at Debug", #property("Log Level").choices, closed)
+  local mark = #pushes
+  code:_tell(true)
+  T.eq("opening it sends the card its list", pushed("PROPERTIES", mark), 1)
+  mark = #pushes
+  code:_tell(false)
+  T.eq("and so does the hour's end", pushed("PROPERTIES", mark), 1)
 end
 
 T.section("Nothing reaches the tab once the driver is destroyed")

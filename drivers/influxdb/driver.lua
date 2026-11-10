@@ -687,6 +687,12 @@ function OnDriverLateInit()
   tabProperties:follow(function()
     UIR._GET_STATUS()
   end)
+  --#ifdef DRIVERCENTRAL
+  -- A Support Code widens Log Level's list, and its hour's end narrows it, with no property handler running.
+  supportCode:onChange(function()
+    UIR._GET_PROPERTIES()
+  end)
+  --#endif
 
   log:info("InfluxDB Data Logger initialized")
 end
