@@ -15,7 +15,7 @@ server is back.
 - Writes held in memory through an outage, within a fixed limit, and retried
   until the server answers again
 - An event when an outage runs longer than the time you set
-- Connection status events and conditionals for programming
+- Connection status events and a conditional for programming
 - A Composer tab to set up measurements and see the driver's status
 
 ## System requirements
