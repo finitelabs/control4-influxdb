@@ -6,76 +6,29 @@
   <title>InfluxDB Data Logger</title>
   <style>
 <!-- #embed ../../../../src/lib/ui/style.css -->
+<!-- #embed ../../../../src/lib/ui/variables.css -->
 
-
-    label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 3px; font-weight: 500; }
-    input[type="text"], input[type="password"], select {
-      width: 100%;
-      padding: 6px 8px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      color: var(--text);
-      font-size: 13px;
-      font-family: var(--font);
-      margin-bottom: 10px;
-    }
-    input:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
-    input:read-only { background: var(--bg); color: var(--text-muted); }
-
-    /* Scroll inside the card only on narrow panes. Fixed layout keeps the
-       declared column widths so a long name ellipsizes rather than pushing the
-       Delete button past the wrapper, which has nothing to scroll. */
-    .table-wrap { overflow-x: hidden; }
-    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    .trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    @media (max-width: 640px) {
-      .table-wrap { overflow-x: auto; }
-      table { min-width: 520px; }
-    }
-    th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
-    th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); font-weight: 600; }
-    tr:hover td { background: var(--surface-hover); }
-
-    .chip {
-      display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
-      vertical-align: middle; padding: 1px 7px; border-radius: 10px;
-      font-size: 10px; font-weight: 600; max-width: 100%; min-width: 0;
-    }
-    /* Long field names clipped mid-word against the chip's rounded edge with no
-       hint they were cut. Ellipsise instead, full name on the title. */
-    .chip-label {
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-    }
+    .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
     .chip-field { background: #dbeafe; color: #1d4ed8; }
     .chip-tag { background: #d1fae5; color: #059669; }
     .chip-on { background: #d1fae5; color: var(--success); }
     .chip-off { background: #fee2e2; color: var(--danger); }
-
-    .status-dot {
-      display: inline-block; width: 8px; height: 8px;
-      border-radius: 50%; margin-right: 5px;
-    }
-    .status-dot.connected { background: var(--success); }
-    .status-dot.disconnected { background: var(--danger); }
-    .status-dot.reconnecting { background: var(--warning); }
 
     .flex { display: flex; }
     .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
     .gap-8 { gap: 8px; }
     .mb-8 { margin-bottom: 8px; }
     .mb-12 { margin-bottom: 12px; }
+    .mt-12 { margin-top: 12px; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
     @media (max-width: 560px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
 
-    .empty { text-align: center; padding: 30px 16px; color: var(--text-muted); font-size: 12px; }
-
     .back-link { color: var(--accent); cursor: pointer; font-size: 12px; margin-bottom: 10px; display: inline-block; }
     .back-link:hover { text-decoration: underline; }
 
-    .prop-group { margin-bottom: 14px; }
-    .prop-group h3 { border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    .input-valid { border-color: var(--success) !important; }
+    .error-text { color: var(--danger); font-size: 11px; margin-top: 4px; }
 
     /* No `overflow` here: the searchable dropdowns are absolutely positioned
        children and any clipping ancestor would cut their popups off. */
@@ -85,59 +38,40 @@
     }
     .mapping-row {
       display: grid;
-      grid-template-columns: 132px 76px minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,120px);
+      grid-template-columns: 132px 84px minmax(0,1.2fr) minmax(0,1.2fr) minmax(0,1fr) minmax(0,120px);
       gap: 6px; align-items: center;
       padding: 5px 0; border-bottom: 1px solid var(--border);
       font-size: 12px;
     }
     .mapping-row:last-child { border-bottom: none; }
-    .mapping-row select, .mapping-row input { margin: 0; padding: 3px 5px; font-size: 12px; min-width: 0; }
+    /* A reading's controls are a size down from the house fields, to fit a row. */
+    .mapping-row > select, .mapping-row > input, .reading-head select { padding: 3px 6px; font-size: 12px; min-width: 0; }
+    .mapping-row > select, .reading-head select { padding-right: 22px; background-position: right 7px center; }
+    .reading-head select { width: auto; }
     .mapping-row .search-select { min-width: 0; }
     .mapping-span2 { grid-column: span 2; }
     .mapping-preview { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; text-align: left; display: block; }
     /* Narrow panes: drop transform + preview onto a second line. */
     @media (max-width: 880px) {
       .mapping-row {
-        grid-template-columns: 132px 76px minmax(0,1fr) minmax(0,1fr);
+        grid-template-columns: 132px 84px minmax(0,1fr) minmax(0,1fr);
         row-gap: 4px;
       }
       .mapping-row .mapping-transform { grid-column: 2 / 4; }
       .mapping-row .mapping-preview { grid-column: 4 / 5; }
     }
-    .input-error { border-color: var(--danger) !important; }
-    .input-valid { border-color: var(--success) !important; }
-    .error-text { color: var(--danger); font-size: 11px; margin-top: -8px; margin-bottom: 8px; }
-    .hint { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4; }
-    .help-icon {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 16px; height: 16px; border-radius: 50%; background: var(--border);
-      color: var(--text-muted); font-size: 10px; font-weight: 700; cursor: pointer;
-      margin-left: 4px; vertical-align: middle; position: relative;
-    }
-    .help-icon:hover { background: var(--accent); color: #fff; }
-    .help-popup {
-      display: none; position: absolute; top: 22px; left: -8px; z-index: 100;
-      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 10px 12px;
-      width: 300px; font-size: 12px; font-weight: 400; color: var(--text);
-      line-height: 1.5; cursor: default; text-align: left;
-      text-transform: none; letter-spacing: normal;
-    }
-    .help-icon:hover .help-popup, .help-popup:hover { display: block; }
-    .help-popup code { background: var(--bg); padding: 1px 4px; border-radius: 3px; font-size: 11px; }
-    .help-popup ul { margin: 4px 0 4px 16px; padding: 0; }
-    .help-popup li { margin-bottom: 2px; }
 
-    /* Searchable dropdown */
+    /* Searchable dropdown: its trigger looks like a reading's select. */
     .search-select { position: relative; display: inline-block; }
     /* Lift the whole control while open so its popup clears sibling cards. */
     .search-select.open { z-index: 60; }
     .search-select-trigger {
-      width: 100%; margin: 0; padding: 3px 20px 3px 5px; font-size: 12px;
+      width: 100%; padding: 3px 22px 3px 6px; font-size: 12px; line-height: 18px;
       border: 1px solid var(--border); border-radius: var(--radius);
-      background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%236b7280'/%3E%3C/svg%3E") no-repeat right 6px center;
+      background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 7px center;
+      background-size: 10px 6px;
       cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      color: var(--text); min-height: 22px; line-height: 16px;
+      color: var(--text);
     }
     .search-select-trigger.placeholder { color: var(--text-muted); }
     .search-select-popup {
@@ -150,15 +84,21 @@
     /* Flipped by positionSearchPopup() when the popup would leave the pane. */
     .search-select-popup.flip-right { left: auto; right: 0; }
     .search-select-popup.flip-up { top: auto; bottom: 100%; }
-    .search-select-search {
-      width: 100%; margin: 0; padding: 5px 8px; font-size: 12px;
+    .search-select-popup .search-select-search {
+      padding: 5px 8px; font-size: 12px; box-shadow: none;
       border: none; border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0;
-      outline: none;
     }
     .search-select-list { max-height: 180px; overflow-y: auto; }
     .search-select-item { padding: 4px 8px; cursor: pointer; font-size: 12px; }
     .search-select-item:hover { background: var(--surface-hover); }
     .search-select-item.selected { background: #dbeafe; }
+    .search-select-section {
+      padding: 4px 8px 2px; font-size: 9.5px; font-weight: 700;
+      letter-spacing: 0.6px; text-transform: uppercase; color: #9ca3af;
+      border-top: 1px solid var(--border);
+    }
+    .search-select-list > .search-select-section:first-child { border-top: none; }
+
     /* Schema entries are rows, not pills: field names run to 20+ characters and
        a pill wide enough for one plus a type control leaves the name as "hu...". */
     .schema-list { display: flex; flex-direction: column; gap: 3px; }
@@ -168,22 +108,15 @@
       font-size: 11px; font-weight: 600;
     }
     .schema-item .chip-label { flex: 1 1 auto; }
+    /* A select drawn as the chip's text, with the house arrow. */
     .chip-type {
-      /* The base select rule is width:100%, which a flex-basis of auto adopts
-         and which squeezes the name to nothing. */
-      flex: 0 0 auto; width: auto; border: none; background: transparent;
+      flex: 0 0 auto; width: auto; border: none; background-color: transparent;
       color: inherit; cursor: pointer; font: inherit; font-weight: 400;
-      padding: 0 2px; margin: 0; opacity: 0.75;
+      padding: 0 16px 0 2px; background-position: right 2px center; opacity: 0.75;
     }
     .chip-type:hover, .chip-type:focus { opacity: 1; }
     .chip-x { flex: 0 0 auto; cursor: pointer; opacity: 0.45; font-weight: 700; padding: 0 4px; }
     .chip-x:hover { opacity: 1; }
-    .search-select-section {
-      padding: 4px 8px 2px; font-size: 9.5px; font-weight: 700;
-      letter-spacing: 0.6px; text-transform: uppercase; color: #9ca3af;
-      border-top: 1px solid var(--border);
-    }
-    .search-select-list > .search-select-section:first-child { border-top: none; }
   </style>
 </head>
 <body>
@@ -193,7 +126,6 @@
   <div class="nav-tab" data-panel="measurements">Measurements</div>
   <span class="nav-meta" id="nav-meta">InfluxDB Data Logger</span>
 </div>
-<div class="banner warn" id="conn-warn" hidden>Not connected to the controller. Open this tab from Composer. The values shown are examples.</div>
 
 <!-- Status Panel -->
 <div id="panel-status" class="panel active">
@@ -248,14 +180,14 @@
     <span class="back-link" onclick="showMeasList()">&larr; Back to Measurements</span>
     <h2 style="font-size:16px; font-weight:600; margin-bottom:12px;">New Measurement</h2>
     <div class="card">
-      <label>Measurement Name <span style="color:var(--danger);">*</span></label>
+      <label for="create-meas-name">Measurement Name <span style="color:var(--danger);">*</span></label>
       <input type="text" id="create-meas-name" placeholder="e.g. battery, temperature, energy" oninput="validateMeasName()"/>
       <div id="create-meas-error" class="error-text" style="display:none;"></div>
-      <p style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">
-        This becomes the InfluxDB measurement name. Spaces and commas are converted to underscores.
-      </p>
-      <button class="btn btn-primary" id="create-meas-btn" onclick="saveNewMeasurement()" disabled>Create Measurement</button>
-      <button class="btn btn-outline" onclick="showMeasList()" style="margin-left:6px;">Cancel</button>
+      <p class="note">This becomes the InfluxDB measurement name. Spaces and commas are converted to underscores.</p>
+      <div class="flex gap-8 mt-12">
+        <button class="btn btn-primary" id="create-meas-btn" onclick="saveNewMeasurement()" disabled>Create Measurement</button>
+        <button class="btn btn-outline" onclick="showMeasList()">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -266,12 +198,11 @@
 
     <div class="card">
       <h3>Schema</h3>
-      <p class="hint">Define the InfluxDB column names. Fields are numeric values (e.g. level, temperature). Tags are string labels for filtering (e.g. device_name, location).</p>
       <div class="grid-2">
         <div>
           <label>Fields</label>
           <div class="flex gap-8 mb-8">
-            <input type="text" id="new-field-name" placeholder="Field name" style="margin:0;flex:1;" oninput="this.classList.remove('input-error');this.title='';"/>
+            <input type="text" id="new-field-name" placeholder="Field name" style="flex:1;" oninput="this.classList.remove('input-error');this.title='';"/>
             <button class="btn btn-outline btn-sm" onclick="addFieldDef()">Add</button>
           </div>
           <div id="schema-fields"></div>
@@ -279,19 +210,20 @@
         <div>
           <label>Tags</label>
           <div class="flex gap-8 mb-8">
-            <input type="text" id="new-tag-name" placeholder="Tag name" style="margin:0;flex:1;" oninput="this.classList.remove('input-error');this.title='';"/>
+            <input type="text" id="new-tag-name" placeholder="Tag name" style="flex:1;" oninput="this.classList.remove('input-error');this.title='';"/>
             <button class="btn btn-outline btn-sm" onclick="addTagDef()">Add</button>
           </div>
           <div id="schema-tags"></div>
         </div>
       </div>
+      <p class="hint">Define the InfluxDB column names. Fields are numeric values (e.g. level, temperature). Tags are string labels for filtering (e.g. device_name, location).</p>
     </div>
 
     <div class="card">
       <h3>Settings</h3>
       <div class="grid-3">
         <div>
-          <label>Write Interval</label>
+          <label for="meas-interval">Write Interval</label>
           <select id="meas-interval" onchange="updateMeasSettings()">
             <option value="Default">Default</option>
             <option value="10s">10s</option><option value="30s">30s</option>
@@ -299,13 +231,13 @@
           </select>
         </div>
         <div>
-          <label>Dedup</label>
+          <label for="meas-dedup">Dedup</label>
           <select id="meas-dedup" onchange="updateMeasSettings()">
             <option value="true">On</option><option value="false">Off</option>
           </select>
         </div>
         <div>
-          <label>Enabled</label>
+          <label for="meas-enabled">Enabled</label>
           <select id="meas-enabled" onchange="updateMeasSettings()">
             <option value="true">On</option><option value="false">Off</option>
           </select>
@@ -317,99 +249,37 @@
       <div class="flex-between mb-8">
         <h3 style="margin:0;">Readings</h3>
         <div class="flex gap-8">
-          <input type="text" id="new-reading-label" placeholder="Reading label" style="margin:0;width:180px;" oninput="this.classList.remove('input-error');this.title='';"/>
+          <input type="text" id="new-reading-label" placeholder="Reading label" style="width:180px;" oninput="this.classList.remove('input-error');this.title='';"/>
           <button class="btn btn-outline btn-sm" onclick="addReading()">Add Reading</button>
         </div>
       </div>
-      <p class="hint">Each reading maps one device's variables to the schema. Add a reading per device. Use <b>+ Device Tags</b> to auto-add device_name and room_name.</p>
       <div id="readings-container"></div>
+      <p class="hint">Each reading maps one device's variables to the schema. Add a reading per device. Use <b>+ Device Tags</b> to auto-add device_name and room_name.</p>
     </div>
   </div>
 </div>
 
 <script>
 <!-- #embed ../../../../src/lib/ui/page.js -->
-var sendCommand = Kit.sendCommand;
-
-
-
-var DRIVER_HANDLERS = {
-  CONFIG_DATA: function (params) { onConfigLoaded(JSON.parse(params.config || '{}')); },
-  STATUS_DATA: function (params) { onStatusLoaded(JSON.parse(params.status || '{}')); },
-  DEVICES_DATA: function (params) { onDevicesLoaded(JSON.parse(params.devices || '[]')); },
-  DEVICE_VARIABLES_DATA: function (params) { onDeviceVariablesLoaded(params.deviceId, JSON.parse(params.variables || '[]')); },
-  TRANSFORM_RESULT: function (params) {
-    var tr = JSON.parse(params.payload || '{}');
-    onTransformResult(tr.id, tr.result, tr.error);
-  },
-};
+<!-- #embed ../../../../src/lib/ui/variables.js -->
 
 // ============================================================
 // State
 // ============================================================
 var gConfig = {};
-var gDevices = [];
-var gDeviceVars = {};
-// A merged entry spans several device ids: index variables by their full
-// "<deviceId>:<varId>" key, and map each member back to its entry.
-var gVarIndex = {};
-var gEntryOfMember = {};
 var gEditingMeas = null;
 
 // ============================================================
-// Navigation
+// Navigation: #measurements/<name> opens that measurement
 // ============================================================
-function updateHash() {
-  var panel = document.querySelector('.nav-tab.active');
-  var tab = panel ? panel.dataset.panel : 'status';
-  var hash = tab;
-  if (tab === 'measurements' && gEditingMeas) {
-    hash = 'measurements/' + encodeURIComponent(gEditingMeas);
+function onTabSwitch(name, detail) {
+  if (name === 'measurements' && detail) {
+    gEditingMeas = decodeURIComponent(detail);
+    if (gConfig[gEditingMeas]) editMeasurement(gEditingMeas);
+  } else {
+    showMeasList();
   }
-  history.replaceState(null, '', '#' + hash);
 }
-
-function onTabSwitch(panelName) {
-  if (panelName !== 'measurements') { gEditingMeas = null; showMeasList(); }
-  updateHash();
-}
-
-Kit.initTabs(onTabSwitch);
-
-// Restore view from URL hash on load
-var gInitialHash = location.hash.replace('#', '');
-function restoreHash() {
-  if (!gInitialHash) return;
-  var parts = gInitialHash.split('/');
-  var tab = parts[0];
-  if (document.getElementById('panel-' + tab)) Kit.switchTab(tab);
-  if (tab === 'measurements' && parts[1]) {
-    var measName = decodeURIComponent(parts[1]);
-    gEditingMeas = measName;
-    // Config will auto-navigate when loaded via onConfigLoaded
-  }
-  gInitialHash = '';
-}
-restoreHash();
-
-// ============================================================
-// Init
-// ============================================================
-function init() {
-  Kit.initPropertiesCard(document.getElementById('props'));
-  if (Kit.demoMode(demoCommand)) { loadDemo(); return; }
-  // The driver pushes the status after each change, and the config after each property change.
-  Kit.connectDriver({
-    handlers: DRIVER_HANDLERS,
-    onProperty: function (name, value) { if (name === 'Driver Status') setStatusPill(value); },
-    onConnect: function () {
-      sendCommand('_GET_CONFIG');
-      sendCommand('_GET_STATUS');
-      sendCommand('_GET_DEVICES');
-    }
-  });
-}
-
 
 // ============================================================
 // Status
@@ -462,12 +332,7 @@ function onConfigLoaded(config) {
   gConfig = config || {};
   renderCounts();
   renderMeasList();
-  if (gEditingMeas && gConfig[gEditingMeas]) {
-    document.getElementById('meas-list-view').style.display = 'none';
-    document.getElementById('meas-create').style.display = 'none';
-    document.getElementById('meas-editor').style.display = '';
-    renderMeasEditor(gEditingMeas);
-  }
+  if (gEditingMeas && gConfig[gEditingMeas]) editMeasurement(gEditingMeas);
 }
 
 function renderMeasList() {
@@ -481,12 +346,12 @@ function renderMeasList() {
     var m = gConfig[name];
     var rc = Object.keys(m.readings || {}).length;
     html += '<tr>' +
-      '<td class="trunc" title="' + esc(name) + '"><a href="#" onclick="editMeasurement(\'' + esc(name) + '\');return false;" style="color:var(--accent);font-weight:500;">' + esc(name) + '</a></td>' +
-      '<td>' + (m.fieldDefs||[]).map(function(f){return '<span class="chip chip-field">'+esc(f)+'</span> ';}).join('') + '</td>' +
-      '<td>' + (m.tagDefs||[]).map(function(t){return '<span class="chip chip-tag">'+esc(t)+'</span> ';}).join('') + '</td>' +
+      '<td class="trunc" title="' + Kit.esc(name) + '"><a href="#measurements/' + encodeURIComponent(name) + '" style="color:var(--accent);font-weight:500;">' + Kit.esc(name) + '</a></td>' +
+      '<td>' + (m.fieldDefs||[]).map(function(f){return '<span class="chip chip-field">'+Kit.esc(f)+'</span> ';}).join('') + '</td>' +
+      '<td>' + (m.tagDefs||[]).map(function(t){return '<span class="chip chip-tag">'+Kit.esc(t)+'</span> ';}).join('') + '</td>' +
       '<td>' + rc + '</td>' +
       '<td><span class="chip '+(m.enabled!==false?'chip-on':'chip-off')+'">'+(m.enabled!==false?'On':'Off')+'</span></td>' +
-      '<td><button class="btn btn-danger btn-sm" onclick="deleteMeasurement(\''+esc(name)+'\')">Delete</button></td></tr>';
+      '<td><button class="btn btn-danger btn-sm" onclick="deleteMeasurement(\''+Kit.esc(name)+'\')">Delete</button></td></tr>';
   });
   tbody.innerHTML = html;
 }
@@ -523,13 +388,13 @@ function validateMeasName() {
 function saveNewMeasurement() {
   if (!validateMeasName()) return;
   var name = document.getElementById('create-meas-name').value.trim();
-  sendCommand('_ADD_MEASUREMENT', { name: name });
+  Kit.sendCommand('_ADD_MEASUREMENT', { name: name });
   document.getElementById('meas-create').style.display = 'none';
   gEditingMeas = name.replace(/[\s,]/g, '_');
 }
 
 function deleteMeasurement(name) {
-  if (confirm('Delete measurement "' + name + '"?')) sendCommand('_DELETE_MEASUREMENT', { name: name });
+  if (confirm('Delete measurement "' + name + '"?')) Kit.sendCommand('_DELETE_MEASUREMENT', { name: name });
 }
 
 function editMeasurement(name) {
@@ -538,7 +403,7 @@ function editMeasurement(name) {
   document.getElementById('meas-create').style.display = 'none';
   document.getElementById('meas-editor').style.display = '';
   renderMeasEditor(name);
-  updateHash();
+  Kit.setDetail(encodeURIComponent(name));
 }
 
 function showMeasList() {
@@ -546,7 +411,7 @@ function showMeasList() {
   document.getElementById('meas-list-view').style.display = '';
   document.getElementById('meas-editor').style.display = 'none';
   document.getElementById('meas-create').style.display = 'none';
-  updateHash();
+  Kit.setDetail('');
 }
 
 function renderMeasEditor(name) {
@@ -562,19 +427,19 @@ function renderMeasEditor(name) {
       var lbl = o === '' ? 'Auto' : o.charAt(0).toUpperCase()+o.slice(1);
       return '<option value="'+o+'"'+(o===t?' selected':'')+'>'+lbl+'</option>';
     }).join('');
-    return '<div class="schema-item chip-field" title="'+esc(f)+'">'+
-      '<span class="chip-label">'+esc(f)+'</span>'+
+    return '<div class="schema-item chip-field" title="'+Kit.esc(f)+'">'+
+      '<span class="chip-label">'+Kit.esc(f)+'</span>'+
       '<select class="chip-type" title="InfluxDB column type. A column has one type, so it is set here rather than per reading. Auto infers from each value." '+
-      'onchange="setFieldType(\''+esc(f)+'\', this.value)">'+opts+'</select>'+
-      '<span class="chip-x" onclick="removeFieldDef(\''+esc(f)+'\')">&times;</span></div>';
+      'onchange="setFieldType(\''+Kit.esc(f)+'\', this.value)">'+opts+'</select>'+
+      '<span class="chip-x" onclick="removeFieldDef(\''+Kit.esc(f)+'\')">&times;</span></div>';
   }).join('');
   fh = fh ? '<div class="schema-list">'+fh+'</div>' : '<span style="color:var(--text-muted)">None</span>';
   document.getElementById('schema-fields').innerHTML = fh;
 
   var th = (m.tagDefs||[]).map(function(t) {
-    return '<div class="schema-item chip-tag" title="'+esc(t)+'">'+
-      '<span class="chip-label">'+esc(t)+'</span>'+
-      '<span class="chip-x" onclick="removeTagDef(\''+esc(t)+'\')">&times;</span></div>';
+    return '<div class="schema-item chip-tag" title="'+Kit.esc(t)+'">'+
+      '<span class="chip-label">'+Kit.esc(t)+'</span>'+
+      '<span class="chip-x" onclick="removeTagDef(\''+Kit.esc(t)+'\')">&times;</span></div>';
   }).join('');
   th = th ? '<div class="schema-list">'+th+'</div>' : '<span style="color:var(--text-muted)">None</span>';
   document.getElementById('schema-tags').innerHTML = th;
@@ -595,17 +460,17 @@ function addSchemaItem(inputId, cmd, paramName) {
   }
   v.classList.remove('input-error'); v.title = '';
   var params = { measurement: gEditingMeas }; params[paramName] = name;
-  sendCommand(cmd, params);
+  Kit.sendCommand(cmd, params);
   v.value = '';
 }
 function addFieldDef() { addSchemaItem('new-field-name', '_ADD_FIELD_DEF', 'name'); }
-function setFieldType(n, t) { if(gEditingMeas) sendCommand('_SET_FIELD_TYPE',{measurement:gEditingMeas,name:n,valueType:t||null}); }
+function setFieldType(n, t) { if(gEditingMeas) Kit.sendCommand('_SET_FIELD_TYPE',{measurement:gEditingMeas,name:n,valueType:t||null}); }
 function addTagDef() { addSchemaItem('new-tag-name', '_ADD_TAG_DEF', 'name'); }
-function removeFieldDef(n) { if(gEditingMeas) sendCommand('_REMOVE_FIELD_DEF',{measurement:gEditingMeas,name:n}); }
-function removeTagDef(n) { if(gEditingMeas) sendCommand('_REMOVE_TAG_DEF',{measurement:gEditingMeas,name:n}); }
+function removeFieldDef(n) { if(gEditingMeas) Kit.sendCommand('_REMOVE_FIELD_DEF',{measurement:gEditingMeas,name:n}); }
+function removeTagDef(n) { if(gEditingMeas) Kit.sendCommand('_REMOVE_TAG_DEF',{measurement:gEditingMeas,name:n}); }
 function updateMeasSettings() {
   if (!gEditingMeas) return;
-  sendCommand('_UPDATE_MEAS_SETTINGS', {
+  Kit.sendCommand('_UPDATE_MEAS_SETTINGS', {
     measurement: gEditingMeas,
     interval: document.getElementById('meas-interval').value,
     dedup: document.getElementById('meas-dedup').value === 'true',
@@ -621,8 +486,21 @@ function addReading() {
   if (m && m.readings && m.readings[label]) { v.classList.add('input-error'); v.title = 'Already exists'; return; }
   v.classList.remove('input-error'); v.title = '';
   if (!gEditingMeas) return;
-  sendCommand('_ADD_READING', { measurement: gEditingMeas, label: label });
+  Kit.sendCommand('_ADD_READING', { measurement: gEditingMeas, label: label });
   v.value = '';
+}
+
+// ============================================================
+// Devices and variables, from Kit.devices
+// ============================================================
+function deviceLabel(d) { return d.roomName ? d.roomName + ' > ' + d.name : d.name; }
+
+// A mapping's varId is "<member id>:<variable id>"; the picker shows the member's entry.
+function mappedEntry(varId) { return varId ? Kit.devices.device(Kit.str(varId).split(':')[0]) : null; }
+
+function mappedVariable(varId) {
+  var parts = Kit.str(varId).split(':');
+  return parts.length === 2 ? Kit.devices.variable(parts[0], parts[1]) : null;
 }
 
 // ============================================================
@@ -641,12 +519,12 @@ function renderReadings(measName, meas) {
     var eid = escId(label);
     html += '<div class="reading-card">';
     // Reading header with device tags selector
-    html += '<div class="flex-between mb-8"><strong>'+esc(label)+'</strong><div class="flex gap-8">';
+    html += '<div class="flex-between mb-8 reading-head"><strong>'+Kit.esc(label)+'</strong><div class="flex gap-8">';
     html += '<div class="search-select" id="dtss_'+eid+'" style="width:180px;">';
     html += '<div class="search-select-trigger placeholder" onclick="openDeviceSearch(\'dt_'+eid+'\',true)" data-devid="" id="devin_dt_'+eid+'">+ Device Tags...</div>';
     html += '<div class="search-select-popup"><input type="text" class="search-select-search" placeholder="Search..." oninput="filterDeviceSearch(\'dt_'+eid+'\',this.value,true)"/>';
     html += '<div class="search-select-list" id="devlist_dt_'+eid+'"></div></div></div>';
-    html += '<select onchange="toggleReadingEnabled(\''+eid+'\',this.value)" style="margin:0;width:auto;padding:2px 6px;" title="Enable/disable this reading">';
+    html += '<select onchange="toggleReadingEnabled(\''+eid+'\',this.value)" title="Enable/disable this reading">';
     html += '<option value="true"'+(reading.enabled!==false?' selected':'')+'>Enabled</option>';
     html += '<option value="false"'+(reading.enabled===false?' selected':'')+'>Disabled</option></select>';
     html += '<button class="btn btn-danger btn-sm" onclick="removeReading(\''+eid+'\')">Remove</button>';
@@ -661,68 +539,51 @@ function renderReadings(measName, meas) {
       html += '<div class="mapping-row">';
 
       // Col 1: Name chip
-      html += '<span class="chip '+(isField?'chip-field':'chip-tag')+'" title="'+esc(defName)+'">'+
-        '<span class="chip-label">'+esc(defName)+'</span></span>';
+      html += '<span class="chip '+(isField?'chip-field':'chip-tag')+'" title="'+Kit.esc(defName)+'">'+
+        '<span class="chip-label">'+Kit.esc(defName)+'</span></span>';
 
       // Col 2: Source selector
-      html += '<select id="src_'+mid+'" onchange="onSourceChange(\''+eid+'\',\''+escId(defName)+'\')" style="margin:0;padding:2px;">';
+      html += '<select id="src_'+mid+'" onchange="onSourceChange(\''+eid+'\',\''+escId(defName)+'\')">';
       html += '<option value="">--</option><option value="variable"'+(source==='variable'?' selected':'')+'>Variable</option>';
       html += '<option value="literal"'+(source==='literal'?' selected':'')+'>Literal</option></select>';
 
       // Col 3+4: Device & Variable (or Literal spanning both, or Not mapped spanning both)
       if (source === 'variable') {
-        var selDevId = mapping.varId ? (gEntryOfMember[mapping.varId.split(':')[0]] || mapping.varId.split(':')[0]) : '';
-        var selDevLabel = selDevId ? findDeviceLabel(selDevId) : '';
+        var entry = mappedEntry(mapping.varId);
+        var selDevId = entry ? String(entry.id) : (mapping.varId ? mapping.varId.split(':')[0] : '');
+        var selDevLabel = entry ? deviceLabel(entry) : (selDevId ? 'Device ' + selDevId : '');
         html += '<div class="search-select" id="devss_'+mid+'">';
-        html += '<div class="search-select-trigger'+(selDevId?'':' placeholder')+'" onclick="openDeviceSearch(\''+mid+'\')" data-devid="'+selDevId+'"';
-        html += ' title="'+esc(selDevLabel || '')+'" id="devin_'+mid+'">'+esc(selDevLabel || 'Device...')+'</div>';
+        html += '<div class="search-select-trigger'+(selDevId?'':' placeholder')+'" onclick="openDeviceSearch(\''+mid+'\')" data-devid="'+Kit.esc(selDevId)+'"';
+        html += ' title="'+Kit.esc(selDevLabel)+'" id="devin_'+mid+'">'+Kit.esc(selDevLabel || 'Device...')+'</div>';
         html += '<div class="search-select-popup"><input type="text" class="search-select-search" placeholder="Search..." oninput="filterDeviceSearch(\''+mid+'\',this.value)"/>';
         html += '<div class="search-select-list" id="devlist_'+mid+'"></div></div></div>';
-        var selVarLabel = (gVarIndex[mapping.varId || ''] || {}).name || '';
+        var selVar = mappedVariable(mapping.varId);
+        var selVarLabel = selVar ? selVar.name : '';
         html += '<div class="search-select" id="varss_'+mid+'">';
-        html += '<div class="search-select-trigger'+(selVarLabel?'':' placeholder')+'" onclick="openVarSearch(\''+mid+'\')" data-varid="'+(mapping.varId||'')+'"';
-        html += ' title="'+esc(selVarLabel || '')+'" id="varin_'+mid+'">'+esc(selVarLabel || 'Variable...')+'</div>';
+        html += '<div class="search-select-trigger'+(selVarLabel?'':' placeholder')+'" onclick="openVarSearch(\''+mid+'\')" data-varid="'+Kit.esc(mapping.varId||'')+'"';
+        html += ' title="'+Kit.esc(selVarLabel)+'" id="varin_'+mid+'">'+Kit.esc(selVarLabel || 'Variable...')+'</div>';
         html += '<div class="search-select-popup"><div class="search-select-list" id="varlist_'+mid+'"></div></div></div>';
-        if (selDevId && !gDeviceVars[selDevId]) sendCommand('_GET_DEVICE_VARIABLES',{deviceId:selDevId});
       } else if (source === 'literal') {
-        html += '<input type="text" class="mapping-span2" id="lit_'+mid+'" value="'+esc(mapping.literal||'')+'" placeholder="Value" onchange="onLitChange(\''+eid+'\',\''+escId(defName)+'\')"/>';
+        html += '<input type="text" class="mapping-span2" id="lit_'+mid+'" value="'+Kit.esc(mapping.literal||'')+'" placeholder="Value" onchange="onLitChange(\''+eid+'\',\''+escId(defName)+'\')"/>';
       } else {
         html += '<span class="mapping-span2" style="color:var(--text-muted);font-size:11px;">Not mapped</span>';
       }
 
       // Col 4: Transform
-      html += '<input type="text" class="mapping-transform" id="tfm_'+mid+'" value="'+esc(mapping.transform||'')+'" placeholder="Transform"';
+      html += '<input type="text" class="mapping-transform" id="tfm_'+mid+'" value="'+Kit.esc(mapping.transform||'')+'" placeholder="Transform"';
       html += ' oninput="onTransformInput(\''+mid+'\',\''+eid+'\',\''+escId(defName)+'\')"';
       html += ' onchange="onTransformChange(\''+eid+'\',\''+escId(defName)+'\')"';
-      html += ' style="margin:0;padding:2px 6px;" title="'+esc(mapping.transform || 'e.g. value*100, device_name(value)')+'"/>';
+      html += ' title="'+Kit.esc(mapping.transform || 'e.g. value*100, device_name(value)')+'"/>';
 
       // Col 5: Live preview (evaluated server-side)
-      var curVal = resolveCurrentValue(mapping);
-      var pinnedType = isField ? ((meas.fieldTypes||{})[defName] || '') : '';
       html += '<span id="preview_'+mid+'" class="mapping-preview" style="color:var(--text-muted);"></span>';
-      if (curVal !== null) {
-        previewValue('preview_'+mid, mapping.transform, curVal, isField?'field':'tag', pinnedType);
-      }
+      previewMapping(mid, defName, mapping, meas, mapping.transform);
 
       html += '</div>';
     });
     html += '</div>';
   });
   container.innerHTML = html;
-}
-
-function buildDeviceList(sel) {
-  return gDevices.map(function(d) {
-    var label = d.displayName || d.name || ('Device ' + d.id);
-    return '<option value="'+d.id+'"'+(String(d.id)===String(sel)?' selected':'')+'>'+esc(label)+'</option>';
-  }).join('');
-}
-
-function findDeviceLabel(devId) {
-  for (var i = 0; i < gDevices.length; i++) {
-    if (String(gDevices[i].id) === String(devId)) return gDevices[i].displayName || gDevices[i].name || '';
-  }
-  return 'Device ' + devId;
 }
 
 // Nudge an open popup back inside the pane: it is left-anchored with a
@@ -737,6 +598,14 @@ function positionSearchPopup(ss) {
   var spaceBelow = document.documentElement.clientHeight - (trigger ? trigger.getBoundingClientRect().bottom : r.top);
   var spaceAbove = trigger ? trigger.getBoundingClientRect().top : r.top;
   if (r.height > spaceBelow - 8 && spaceAbove > spaceBelow) popup.classList.add('flip-up');
+}
+
+function closeOnOutsideClick(ss) {
+  setTimeout(function() {
+    document.addEventListener('click', function closeHandler(e) {
+      if (!ss.contains(e.target)) { ss.classList.remove('open'); document.removeEventListener('click', closeHandler); }
+    });
+  }, 0);
 }
 
 function openDeviceSearch(mid, isTagPicker) {
@@ -754,11 +623,7 @@ function openDeviceSearch(mid, isTagPicker) {
   positionSearchPopup(ss);
   var searchInput = ss.querySelector('.search-select-search');
   if (searchInput) { searchInput.value = ''; searchInput.focus(); }
-  setTimeout(function() {
-    document.addEventListener('click', function closeHandler(e) {
-      if (!ss.contains(e.target)) { ss.classList.remove('open'); document.removeEventListener('click', closeHandler); }
-    });
-  }, 0);
+  closeOnOutsideClick(ss);
 }
 
 function filterDeviceSearch(mid, query, isTagPicker) {
@@ -772,16 +637,16 @@ function filterDeviceSearch(mid, query, isTagPicker) {
   // variable. The caller says which -- a reading label can escId into `dt_`.
   var html = '';
   var lastSection = null;
-  gDevices.forEach(function(d) {
+  Kit.devices.list().forEach(function(d) {
     if (!isTagPicker && d.hasVariables === false) return;
-    var label = d.displayName || d.name || ('Device ' + d.id);
+    var label = deviceLabel(d);
     if (q && label.toLowerCase().indexOf(q) < 0) return;
     if (d.section && d.section !== lastSection) {
-      html += '<div class="search-select-section">'+esc(d.section)+'</div>';
+      html += '<div class="search-select-section">'+Kit.esc(d.section)+'</div>';
       lastSection = d.section;
     }
     var cls = String(d.id) === selDevId ? ' selected' : '';
-    html += '<div class="search-select-item'+cls+'" onclick="selectDevice(\''+mid+'\',\''+d.id+'\',\''+esc(label).replace(/'/g,"\\'")+'\','+(isTagPicker?'true':'false')+')">'+esc(label)+'</div>';
+    html += '<div class="search-select-item'+cls+'" onclick="selectDevice(\''+mid+'\',\''+d.id+'\','+(isTagPicker?'true':'false')+')">'+Kit.esc(label)+'</div>';
   });
   list.innerHTML = html || '<div class="search-select-item" style="color:var(--text-muted);">No matches</div>';
   // Filtering changes the popup height, so re-check whether it still fits.
@@ -789,7 +654,7 @@ function filterDeviceSearch(mid, query, isTagPicker) {
   if (ss && ss.classList.contains('open')) positionSearchPopup(ss);
 }
 
-function selectDevice(mid, devId, label, isTagPicker) {
+function selectDevice(mid, devId, isTagPicker) {
   var trigger = document.getElementById('devin_' + mid);
   var ss = isTagPicker
     ? document.getElementById('dtss_' + mid.substring(3))
@@ -803,9 +668,13 @@ function selectDevice(mid, devId, label, isTagPicker) {
     return;
   }
 
+  var d = Kit.devices.device(devId);
+  var label = d ? deviceLabel(d) : 'Device ' + devId;
   if (trigger) { trigger.textContent = label; trigger.title = label; trigger.dataset.devid = devId; trigger.classList.remove('placeholder'); }
-  var parts = mid.split('__');
-  onDeviceSelect(parts[0], parts[1]);
+  // A new device clears the variable, and its list is asked for now.
+  var varTrigger = document.getElementById('varin_' + mid);
+  if (varTrigger) { varTrigger.textContent = 'Variable...'; varTrigger.dataset.varid = ''; varTrigger.classList.add('placeholder'); }
+  Kit.devices.variables(devId);
 }
 
 function openVarSearch(mid) {
@@ -818,18 +687,13 @@ function openVarSearch(mid) {
   var devTrigger = document.getElementById('devin_' + mid);
   var devId = devTrigger ? devTrigger.dataset.devid : '';
   if (!devId) return;
-  // Fetch variables if not cached, then retry
-  if (!gDeviceVars[devId]) {
-    sendCommand('_GET_DEVICE_VARIABLES', {deviceId: devId});
-    // Poll until loaded (max 3s)
-    var attempts = 0;
-    var poller = setInterval(function() {
-      attempts++;
-      if (gDeviceVars[devId] || attempts > 15) {
-        clearInterval(poller);
-        if (gDeviceVars[devId]) openVarSearch(mid);
-      }
-    }, 200);
+  var vars = Kit.devices.variables(devId);
+  if (!vars) {
+    // Opens once they arrive, unless it was opened since.
+    Kit.devices.whenVariables(devId).then(function(rows) {
+      var now = document.getElementById('varss_' + mid);
+      if (rows && now && !now.classList.contains('open')) openVarSearch(mid);
+    });
     return;
   }
   var varTrigger = document.getElementById('varin_' + mid);
@@ -838,28 +702,26 @@ function openVarSearch(mid) {
   if (!list) return;
   var html = '';
   var lastSection = null;
-  (gDeviceVars[devId]||[]).forEach(function(v) {
+  vars.forEach(function(v) {
     if (v.section && v.section !== lastSection) {
-      html += '<div class="search-select-section">'+esc(v.section)+'</div>';
+      html += '<div class="search-select-section">'+Kit.esc(v.section)+'</div>';
       lastSection = v.section;
     }
     var vid = (v.deviceId != null ? v.deviceId : devId) + ':' + v.id;
     var cls = vid === selVarId ? ' selected' : '';
-    html += '<div class="search-select-item'+cls+'" onclick="selectVariable(\''+mid+'\',\''+vid+'\',\''+esc(v.name).replace(/'/g,"\\'")+'\')">'+esc(v.name)+'</div>';
+    html += '<div class="search-select-item'+cls+'" onclick="selectVariable(\''+mid+'\',\''+vid+'\')">'+Kit.esc(v.name)+'</div>';
   });
   list.innerHTML = html || '<div class="search-select-item" style="color:var(--text-muted);">No variables found</div>';
   ss.classList.add('open');
   positionSearchPopup(ss);
-  setTimeout(function() {
-    document.addEventListener('click', function closeHandler(e) {
-      if (!ss.contains(e.target)) { ss.classList.remove('open'); document.removeEventListener('click', closeHandler); }
-    });
-  }, 0);
+  closeOnOutsideClick(ss);
 }
 
-function selectVariable(mid, varId, label) {
+function selectVariable(mid, varId) {
   var trigger = document.getElementById('varin_' + mid);
   var ss = document.getElementById('varss_' + mid);
+  var v = mappedVariable(varId);
+  var label = v ? v.name : varId;
   if (trigger) { trigger.textContent = label; trigger.title = label; trigger.dataset.varid = varId; trigger.classList.remove('placeholder'); }
   if (ss) ss.classList.remove('open');
   var parts = mid.split('__');
@@ -870,42 +732,43 @@ function selectVariable(mid, varId, label) {
 
 function onReadingDeviceTags(readingId, deviceId) {
   if (!deviceId || !gEditingMeas) return;
-  sendCommand('_INCLUDE_DEVICE_TAGS', {
+  Kit.sendCommand('_INCLUDE_DEVICE_TAGS', {
     measurement: gEditingMeas,
     reading: unescId(readingId),
     deviceId: deviceId
   });
 }
 
-// Request server-side transform evaluation
-function evalTransform(previewId, expr, rawValue, kind, valueType) {
-  sendCommand('_EVAL_TRANSFORM', {
-    id: previewId, expression: expr, value: rawValue,
-    kind: kind || '', valueType: valueType || ''
+// The driver evaluates a mapping's transform on its current value. A field with
+// no transform still round-trips: the driver is what knows the pinned type, and
+// without it "0" and 0 look identical in the preview.
+// Returns whether the mapping has a value to preview.
+function previewMapping(mid, defName, mapping, meas, expr) {
+  var curVal = resolveCurrentValue(mapping);
+  if (curVal === null) return false;
+  var isField = (meas.fieldDefs || []).indexOf(defName) >= 0;
+  Kit.sendCommand('_EVAL_TRANSFORM', {
+    id: 'preview_' + mid, expression: expr || '', value: curVal,
+    kind: isField ? 'field' : 'tag', valueType: isField ? ((meas.fieldTypes || {})[defName] || '') : ''
   });
+  return true;
 }
 
-// A field with no transform still round-trips: the driver is what knows the
-// pinned type, and without it "0" and 0 look identical in the preview.
-function previewValue(previewId, expr, rawValue, kind, valueType) {
-  evalTransform(previewId, expr || '', rawValue, kind, valueType);
-}
-
-function onTransformResult(id, result, error) {
+function onTransformResult(result) {
+  var id = result.id;
   var el = document.getElementById(id);
   if (!el) return;
-  if (error) {
-    el.innerHTML = '<span style="cursor:help;" title="'+esc(error)+'">&#9888; '+esc(error.substring(0,30))+'</span>';
+  var tfmEl = document.getElementById(id.replace('preview_','tfm_'));
+  if (result.error) {
+    el.innerHTML = '<span style="cursor:help;" title="'+Kit.esc(result.error)+'">&#9888; '+Kit.esc(result.error.substring(0,30))+'</span>';
     el.style.color = 'var(--danger)';
     // Only blame the Transform box when there is one. A pinned-type mismatch on
     // a mapping with an empty box is the schema's fault, not the transform's.
-    var tfmEl = document.getElementById(id.replace('preview_','tfm_'));
-    if (tfmEl && tfmEl.value) { tfmEl.style.borderColor = 'var(--danger)'; tfmEl.title = error; }
-  } else if (result !== '') {
-    el.innerHTML = '= <b style="color:var(--text);">'+esc(result)+'</b>';
-    el.title = result;
+    if (tfmEl && tfmEl.value) { tfmEl.style.borderColor = 'var(--danger)'; tfmEl.title = result.error; }
+  } else if (result.result !== '') {
+    el.innerHTML = '= <b style="color:var(--text);">'+Kit.esc(result.result)+'</b>';
+    el.title = result.result;
     el.style.color = 'var(--text-muted)';
-    var tfmEl = document.getElementById(id.replace('preview_','tfm_'));
     if (tfmEl) { tfmEl.style.borderColor = 'var(--success)'; tfmEl.title = tfmEl.value; }
   }
 }
@@ -921,27 +784,13 @@ function onTransformInput(mid, readingId, mappingId) {
     var expr = tfmEl.value;
     var m = gConfig[gEditingMeas]; if (!m) return;
     var reading = (m.readings || {})[unescId(readingId)]; if (!reading) return;
-    var mapping = (reading.mappings || {})[unescId(mappingId)] || {};
-    var curVal = resolveCurrentValue(mapping);
+    var defName = unescId(mappingId);
+    var mapping = (reading.mappings || {})[defName] || {};
+    if (!expr) { tfmEl.style.borderColor = ''; tfmEl.title = ''; }
     // No fabricated fallback: previewing an unresolvable mapping as a confident
     // "0i" is worse than showing nothing.
-    if (curVal === null) { previewEl.innerHTML = ''; tfmEl.style.borderColor = ''; tfmEl.title = ''; return; }
-    if (!expr) { tfmEl.style.borderColor = ''; tfmEl.title = ''; }
-
-    var mLive = gConfig[gEditingMeas] || {};
-    var isFieldL = (mLive.fieldDefs||[]).indexOf(unescId(mappingId)) >= 0;
-    previewValue(previewEl.id, expr, curVal, isFieldL?'field':'tag',
-      isFieldL ? ((mLive.fieldTypes||{})[unescId(mappingId)] || '') : '');
+    if (!previewMapping(mid, defName, mapping, m, expr)) { previewEl.innerHTML = ''; tfmEl.style.borderColor = ''; tfmEl.title = ''; }
   }, 300);
-}
-
-function buildVarOptions(devId, selVarId) {
-  var html = '<option value="">Variable...</option>';
-  (gDeviceVars[String(devId)]||[]).forEach(function(v) {
-    var vid = devId+':'+v.id;
-    html += '<option value="'+vid+'"'+(vid===selVarId?' selected':'')+'>'+esc(v.name)+'</option>';
-  });
-  return html;
 }
 
 function resolveCurrentValue(mapping) {
@@ -950,19 +799,15 @@ function resolveCurrentValue(mapping) {
   if (mapping.source === 'literal') {
     raw = mapping.literal;
   } else if (mapping.source === 'variable' && mapping.varId) {
-    var v = gVarIndex[mapping.varId];
+    var v = mappedVariable(mapping.varId);
     if (v) raw = v.value;
   }
   if (raw === null || raw === undefined) return null;
   return String(raw);
 }
 
-// s||'' would blank out 0 and false, which is how every preview of a value that
-// computed to 0 rendered as a bare "=" with nothing after it.
-function str(s) { return (s === null || s === undefined) ? '' : String(s); }
-function esc(s) { return str(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 // Unique per name and never holding __, since an id joins two of these and splits on __.
-function escId(s) { return str(s).replace(/[^a-zA-Z0-9]/g,function(c){return '_'+('000'+c.charCodeAt(0).toString(16)).slice(-4);}); }
+function escId(s) { return Kit.str(s).replace(/[^a-zA-Z0-9]/g,function(c){return '_'+('000'+c.charCodeAt(0).toString(16)).slice(-4);}); }
 function unescId(id) {
   if (!gEditingMeas || !gConfig[gEditingMeas]) return id;
   var m = gConfig[gEditingMeas];
@@ -975,23 +820,6 @@ function unescId(id) {
 function onSourceChange(rid, mid) {
   var src = document.getElementById('src_'+rid+'__'+mid).value;
   if (src) saveMapping(rid, mid, {source:src});
-}
-
-function onDeviceSelect(rid, mid) {
-  var k = rid + '__' + mid;
-  var trigger = document.getElementById('devin_' + k);
-  var devId = trigger ? trigger.dataset.devid : '';
-  if (!devId) return;
-  // Reset variable selection
-  var varTrigger = document.getElementById('varin_' + k);
-  if (varTrigger) { varTrigger.textContent = 'Variable...'; varTrigger.dataset.varid = ''; varTrigger.classList.add('placeholder'); }
-  if (!gDeviceVars[devId]) {
-    sendCommand('_GET_DEVICE_VARIABLES', {deviceId: devId});
-  }
-}
-
-function onVarChange(rid, mid) {
-  // Legacy — now handled by selectVariable
 }
 
 function onLitChange(rid, mid) {
@@ -1021,62 +849,31 @@ function saveMapping(rid, mid, mapping) {
       if (mapping.literal===undefined && mapping.source==='literal') mapping.literal=ex.literal||null;
     }
   }
-  sendCommand('_SAVE_MAPPING', {measurement:gEditingMeas, reading:rl, name:mn, mapping:mapping});
+  Kit.sendCommand('_SAVE_MAPPING', {measurement:gEditingMeas, reading:rl, name:mn, mapping:mapping});
 }
 
-function toggleReadingEnabled(rid, val) { if(gEditingMeas) sendCommand('_UPDATE_READING_ENABLED',{measurement:gEditingMeas,label:unescId(rid),enabled:val==='true'}); }
-function removeReading(rid) { if(gEditingMeas && confirm('Remove reading "'+unescId(rid)+'"?')) sendCommand('_REMOVE_READING',{measurement:gEditingMeas,label:unescId(rid)}); }
+function toggleReadingEnabled(rid, val) { if(gEditingMeas) Kit.sendCommand('_UPDATE_READING_ENABLED',{measurement:gEditingMeas,label:unescId(rid),enabled:val==='true'}); }
+function removeReading(rid) { if(gEditingMeas && confirm('Remove reading "'+unescId(rid)+'"?')) Kit.sendCommand('_REMOVE_READING',{measurement:gEditingMeas,label:unescId(rid)}); }
 
-// ============================================================
-// Devices
-// ============================================================
-function onDevicesLoaded(devices) {
-  gDevices = devices || [];
-  gEntryOfMember = {};
-  gDevices.forEach(function(d) {
-    (d.memberIds || [d.id]).forEach(function(m) { gEntryOfMember[String(m)] = String(d.id); });
-  });
-  if (gEditingMeas && gConfig[gEditingMeas]) renderMeasEditor(gEditingMeas);
-}
-
-function onDeviceVariablesLoaded(deviceId, vars) {
-  var did = String(deviceId);
-  gDeviceVars[did] = vars || [];
-  // Re-index from scratch for this entry so a variable that has gone away does
-  // not leave a stale value behind.
-  Object.keys(gVarIndex).forEach(function(k) {
-    if (gEntryOfMember[k.split(':')[0]] === did) delete gVarIndex[k];
-  });
-  (vars || []).forEach(function(v) {
-    gVarIndex[String(v.deviceId != null ? v.deviceId : did) + ':' + v.id] = v;
-  });
-  // A mapping stores the member's id, and a bare variable id is ambiguous.
-  document.querySelectorAll('[id^="varin_"]').forEach(function(el) {
-    var varid = el.getAttribute('data-varid') || '';
-    if (!varid || gEntryOfMember[varid.split(':')[0]] !== did) return;
-    var v = gVarIndex[varid];
-    if (v && v.name) { el.textContent = v.name; el.title = v.name; el.classList.remove('placeholder'); }
-  });
-  // Refresh previews for mappings that use this device's variables
-  if (!gEditingMeas || !gConfig[gEditingMeas]) return;
-  var meas = gConfig[gEditingMeas];
-  var allDefs = (meas.fieldDefs||[]).concat(meas.tagDefs||[]);
-  for (var label in meas.readings||{}) {
-    var reading = meas.readings[label];
-    var eid = escId(label);
-    allDefs.forEach(function(defName) {
-      var mapping = (reading.mappings||{})[defName] || {};
-      if (mapping.source !== 'variable' || !mapping.varId) return;
-      if (gEntryOfMember[mapping.varId.split(':')[0]] !== did) return;
-      var mid = eid + '__' + escId(defName);
-      var curVal = resolveCurrentValue(mapping);
-      if (curVal === null) return;
-      var previewId = 'preview_' + mid;
-      var isFieldM = (meas.fieldDefs||[]).indexOf(defName) >= 0;
-      previewValue(previewId, mapping.transform, curVal, isFieldM?'field':'tag',
-        isFieldM ? ((meas.fieldTypes||{})[defName] || '') : '');
+// The device list redraws the editor; an entry's variables fill in its mappings' names and previews.
+function onDevicesChange(entryId) {
+  var meas = gEditingMeas && gConfig[gEditingMeas];
+  if (!meas) return;
+  if (entryId === null) { renderMeasEditor(gEditingMeas); return; }
+  var defs = (meas.fieldDefs||[]).concat(meas.tagDefs||[]);
+  Object.keys(meas.readings || {}).forEach(function(label) {
+    var mappings = meas.readings[label].mappings || {};
+    defs.forEach(function(defName) {
+      var mapping = mappings[defName] || {};
+      var entry = mapping.source === 'variable' ? mappedEntry(mapping.varId) : null;
+      if (!entry || String(entry.id) !== entryId) return;
+      var mid = escId(label) + '__' + escId(defName);
+      var v = mappedVariable(mapping.varId);
+      var trigger = document.getElementById('varin_' + mid);
+      if (v && trigger) { trigger.textContent = v.name; trigger.title = v.name; trigger.classList.remove('placeholder'); }
+      previewMapping(mid, defName, mapping, meas, mapping.transform);
     });
-  }
+  });
 }
 
 // ============================================================
@@ -1114,90 +911,106 @@ function demoMeasurement(fields, types, interval, enabled, readings) {
     tagDefs: ['device_name', 'room_name'], readings: r };
 }
 
-function loadDemo() {
-  onDevicesLoaded(DEMO_DEVICES.map(function(d) {
-    return { id: d[0], name: d[1], displayName: d[2] + ' > ' + d[1], roomName: d[2], section: 'Devices',
-      hasVariables: true, memberIds: [d[0]] };
-  }));
-  onConfigLoaded({
-    energy: demoMeasurement(['watts', 'kwh_today'], ['float', 'float'], '1m', true,
-      [['Panel', 301, [1001, 1002]], ['Freezer', 302, [1001, 1002]], ['Workshop', 303, [1001, 1002]]]),
-    climate: demoMeasurement(['temperature', 'humidity'], ['float', 'integer'], '5m', true,
-      [['Upstairs', 304, [1130, 1138]], ['Basement', 305, [1130, 1138]], ['Garage', 308, [1130, 1138]], ['Attic', 309, [1130, 1138]]]),
-    lighting: demoMeasurement(['on', 'level'], ['integer', 'integer'], '1m', true,
-      [['Hallway', 306, [1000, 1001]], ['Porch', 310, [1000, 1001]]]),
-    doors: demoMeasurement(['open'], ['integer'], '1m', false,
-      [['Front Door', 307, [1000]], ['Back Door', 311, [1000]]])
-  });
-  onStatusLoaded({ driverStatus: 'Connected', url: 'http://influxdb.example.invalid:8086', database: 'home',
-    lastWrite: Math.floor(Date.now() / 1000) - 29, pointsWritten: 18412, pointsBuffered: 12, pointsDropped: 0,
-    writeErrors: 0, watchdogFires: 0 });
-  Kit.showProperties([
+var DEMO_CONFIG = {
+  energy: demoMeasurement(['watts', 'kwh_today'], ['float', 'float'], '1m', true,
+    [['Panel', 301, [1001, 1002]], ['Freezer', 302, [1001, 1002]], ['Workshop', 303, [1001, 1002]]]),
+  climate: demoMeasurement(['temperature', 'humidity'], ['float', 'integer'], '5m', true,
+    [['Upstairs', 304, [1130, 1138]], ['Basement', 305, [1130, 1138]], ['Garage', 308, [1130, 1138]], ['Attic', 309, [1130, 1138]]]),
+  lighting: demoMeasurement(['on', 'level'], ['integer', 'integer'], '1m', true,
+    [['Hallway', 306, [1000, 1001]], ['Porch', 310, [1000, 1001]]]),
+  doors: demoMeasurement(['open'], ['integer'], '1m', false,
+    [['Front Door', 307, [1000]], ['Back Door', 311, [1000]]])
+};
+
+var DEMO_PROPERTIES = [
+  // #ifdef DRIVERCENTRAL
+  { name: 'Cloud Status', group: 'Cloud Settings', readonly: true, value: 'License Activated' },
+  // #endif
+  { name: 'Automatic Updates', group: 'Cloud Settings', value: 'On', choices: ['Off', 'On'] },
+  // #ifndef DRIVERCENTRAL
+  { name: 'Update Channel', group: 'Cloud Settings', value: 'Production', choices: ['Production', 'Prerelease'] },
+  // #endif
+  { name: 'Driver Status', group: 'Driver Settings', readonly: true, value: 'Connected' },
+  { name: 'Driver Version', group: 'Driver Settings', readonly: true, value: '20261107' },
+  { name: 'Log Level', group: 'Driver Settings', value: '3 - Info',
     // #ifdef DRIVERCENTRAL
-    { name: 'Cloud Status', group: 'Cloud Settings', readonly: true, value: 'License Activated' },
+    choices: ['0 - Fatal', '1 - Error', '2 - Warning', '3 - Info', '4 - Debug']
+    // #else
+    choices: ['0 - Fatal', '1 - Error', '2 - Warning', '3 - Info', '4 - Debug', '5 - Trace', '6 - Ultra']
     // #endif
-    { name: 'Automatic Updates', group: 'Cloud Settings', value: 'On', choices: ['Off', 'On'] },
-    // #ifndef DRIVERCENTRAL
-    { name: 'Update Channel', group: 'Cloud Settings', value: 'Production', choices: ['Production', 'Prerelease'] },
-    // #endif
-    { name: 'Driver Status', group: 'Driver Settings', readonly: true, value: 'Connected' },
-    { name: 'Driver Version', group: 'Driver Settings', readonly: true, value: '20261107' },
-    { name: 'Log Level', group: 'Driver Settings', value: '3 - Info',
-      // #ifdef DRIVERCENTRAL
-      choices: ['0 - Fatal', '1 - Error', '2 - Warning', '3 - Info', '4 - Debug']
-      // #else
-      choices: ['0 - Fatal', '1 - Error', '2 - Warning', '3 - Info', '4 - Debug', '5 - Trace', '6 - Ultra']
-      // #endif
-    },
-    { name: 'Log Mode', group: 'Driver Settings', value: 'Off', choices: ['Off', 'Print', 'Log', 'Print and Log'] },
-    // #ifdef DRIVERCENTRAL
-    { name: 'Cloud Monitoring', group: 'Driver Settings', value: 'Enabled', choices: ['Disabled', 'Enabled'],
-      description: 'Sends memory and error reports to Finite Labs so we can fix driver problems.' },
-    // #endif
-    { name: 'InfluxDB URL', group: 'InfluxDB Connection', value: 'http://influxdb.example.invalid:8086',
-      description: "Your InfluxDB server's address, with its port." },
-    { name: 'Database', group: 'InfluxDB Connection', value: 'home',
-      description: 'The database (bucket) the driver writes to.' },
-    { name: 'Write Precision', group: 'InfluxDB Connection', value: 'ms', choices: ['ns', 'us', 'ms', 's'],
-      description: "How precisely each point's time is stored." },
-    { name: 'Default Write Interval', group: 'InfluxDB Connection', value: '1m', choices: ['10s', '30s', '1m', '5m', '15m'],
-      description: 'How often readings are sent, unless a measurement sets its own.' },
-    { name: 'Outage Notification Threshold', group: 'Offline Buffer and Retry', value: '5m', choices: ['1m', '5m', '15m', '30m', '1h'],
-      description: 'How long writes can fail before Extended Outage fires.' }
-  ]);
+  },
+  { name: 'Log Mode', group: 'Driver Settings', value: 'Off', choices: ['Off', 'Print', 'Log', 'Print and Log'] },
+  // #ifdef DRIVERCENTRAL
+  { name: 'Cloud Monitoring', group: 'Driver Settings', value: 'Enabled', choices: ['Disabled', 'Enabled'],
+    description: 'Sends memory and error reports to Finite Labs so we can fix driver problems.' },
+  // #endif
+  { name: 'InfluxDB URL', group: 'InfluxDB Connection', value: 'http://influxdb.example.invalid:8086',
+    description: "Your InfluxDB server's address, with its port." },
+  { name: 'Database', group: 'InfluxDB Connection', value: 'home',
+    description: 'The database (bucket) the driver writes to.' },
+  { name: 'Write Precision', group: 'InfluxDB Connection', value: 'ms', choices: ['ns', 'us', 'ms', 's'],
+    description: "How precisely each point's time is stored." },
+  { name: 'Default Write Interval', group: 'InfluxDB Connection', value: '1m', choices: ['10s', '30s', '1m', '5m', '15m'],
+    description: 'How often readings are sent, unless a measurement sets its own.' },
+  { name: 'Outage Notification Threshold', group: 'Offline Buffer and Retry', value: '5m', choices: ['1m', '5m', '15m', '30m', '1h'],
+    description: 'How long writes can fail before Extended Outage fires.' }
+];
+
+// The preview as the driver would show it, for the two tag transforms and an untransformed field.
+function demoTransform(params) {
+  var v = params.value, out = String(v);
+  var dev = DEMO_DEVICES.filter(function(d) { return String(d[0]) === String(v); })[0];
+  if (params.expression === 'device_name(value)') out = dev ? dev[1] : out;
+  else if (params.expression === 'room_name(value)') out = dev ? dev[2] : out;
+  else if (params.valueType === 'float') out = Number.isInteger(Number(v)) ? Number(v).toFixed(1) : String(Number(v));
+  else if (params.valueType === 'integer') out = String(Math.floor(Number(v)));
+  return out;
 }
 
-// Commands a demo page answers itself, as a controller would, after the page has drawn; it changes nothing.
+// The commands a demo page answers as the driver would; a change is not kept.
 function demoCommand(cmd, params) {
-  if (cmd === '_EVAL_TRANSFORM') {
-    // The preview as the driver would show it, for the two tag transforms and an untransformed field.
-    setTimeout(function() {
-      var v = params.value, out = String(v);
-      var dev = DEMO_DEVICES.filter(function(d) { return String(d[0]) === String(v); })[0];
-      if (params.expression === 'device_name(value)') out = dev ? dev[1] : out;
-      else if (params.expression === 'room_name(value)') out = dev ? dev[2] : out;
-      else if (params.valueType === 'float') out = Number.isInteger(Number(v)) ? Number(v).toFixed(1) : String(Number(v));
-      else if (params.valueType === 'integer') out = String(Math.floor(Number(v)));
-      onTransformResult(params.id, out, null);
-    }, 0);
-    return;
+  if (cmd === '_GET_CONFIG') Kit.deliver('CONFIG_DATA', DEMO_CONFIG);
+  else if (cmd === '_GET_PROPERTIES') Kit.deliver('PROPERTIES', { properties: DEMO_PROPERTIES });
+  else if (cmd === '_EVAL_TRANSFORM') Kit.deliver('TRANSFORM_RESULT', { id: params.id, result: demoTransform(params), error: '' });
+  else if (cmd === '_GET_STATUS') {
+    Kit.deliver('STATUS_DATA', { driverStatus: 'Connected', url: 'http://influxdb.example.invalid:8086', database: 'home',
+      lastWrite: Math.floor(Date.now() / 1000) - 29, pointsWritten: 18412, pointsBuffered: 12, pointsDropped: 0,
+      writeErrors: 0, watchdogFires: 0 });
   }
-  if (cmd !== '_GET_DEVICE_VARIABLES') return;
-  setTimeout(function() {
-    DEMO_DEVICES.forEach(function(d) {
-      if (String(d[0]) !== String(params.deviceId)) return;
-      onDeviceVariablesLoaded(String(d[0]), d[3].map(function(v, i) {
-        return { id: v[0], deviceId: d[0], section: 'Devices', order: i, name: v[1], type: v[2], value: v[3] };
-      }));
+}
+
+function demoDevices() {
+  var variables = {};
+  var entries = DEMO_DEVICES.map(function(d) {
+    variables[d[0]] = d[3].map(function(v) {
+      return { id: v[0], deviceId: d[0], section: 'Device', order: 1, name: v[1], type: v[2], value: v[3] };
     });
-  }, 0);
+    return { id: d[0], name: d[1], roomName: d[2], section: 'Devices', hasVariables: true, memberIds: [d[0]] };
+  });
+  Kit.devices.demo(entries, variables);
 }
 
 // ============================================================
 // Boot
 // ============================================================
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-else init();
+Kit.initTabs(onTabSwitch, { hash: true });
+Kit.initPropertiesCard(document.getElementById('props'));
+Kit.devices.onChange(onDevicesChange);
+if (Kit.demoMode(demoCommand)) demoDevices();
+// The driver pushes the status after each change.
+Kit.connectDriver({
+  handlers: {
+    CONFIG_DATA: onConfigLoaded,
+    STATUS_DATA: onStatusLoaded,
+    TRANSFORM_RESULT: onTransformResult
+  },
+  onProperty: function (name, value) { if (name === 'Driver Status') setStatusPill(value); },
+  onConnect: function () {
+    Kit.sendCommand('_GET_CONFIG');
+    Kit.sendCommand('_GET_STATUS');
+    Kit.devices.load();
+  }
+});
 </script>
 </body>
 </html>
