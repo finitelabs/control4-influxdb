@@ -501,9 +501,9 @@ function renderReadings(measName, meas) {
           placeholder: 'Device...', label: devId ? deviceName(devId) : '', value: devId, items: deviceItems(false),
           onPick: function(id) { pickDevice(mid, id); }
         });
-        var selVar = gPicked[mid] ? null : mappedVariable(mapping.varId);
+        var selVar = picked()[mid] ? null : mappedVariable(mapping.varId);
         html += Kit.combobox('var:' + mid, {
-          placeholder: 'Variable...', label: selVar ? selVar.name : '', value: gPicked[mid] ? '' : mapping.varId || '',
+          placeholder: 'Variable...', label: selVar ? selVar.name : '', value: picked()[mid] ? '' : mapping.varId || '',
           search: false, empty: 'No variables found', items: function() { return variableItems(mid, mapping); },
           onPick: function(varId) { pickVariable(mid, varId); }
         });
@@ -530,11 +530,20 @@ function renderReadings(measName, meas) {
   container.innerHTML = html;
 }
 
-// A device picked in a row before its variable: the row shows it until the variable is picked and saved.
-var gPicked = {};
+// A device picked in a row before its variable: the row shows it until the variable is picked and saved, and only in
+// the measurement it was picked in.
+var gPicked = {}, gPickedMeas = null;
+
+function picked() {
+  if (gPickedMeas !== gEditingMeas) {
+    gPicked = {};
+    gPickedMeas = gEditingMeas;
+  }
+  return gPicked;
+}
 
 function pickedDevice(mid, mapping) {
-  if (gPicked[mid]) return gPicked[mid];
+  if (picked()[mid]) return picked()[mid];
   var entry = mappedEntry(mapping.varId);
   return entry ? String(entry.id) : (mapping.varId ? mapping.varId.split(':')[0] : '');
 }
@@ -565,7 +574,7 @@ function variableItems(mid, mapping) {
 
 // A new device clears the row's variable, and its list is asked for now.
 function pickDevice(mid, devId) {
-  gPicked[mid] = devId;
+  picked()[mid] = devId;
   Kit.combobox.set('dev:' + mid, { label: deviceName(devId), value: devId });
   Kit.combobox.set('var:' + mid, { label: '', value: '' });
   Kit.devices.variables(devId);
@@ -573,7 +582,7 @@ function pickDevice(mid, devId) {
 
 function pickVariable(mid, varId) {
   var v = mappedVariable(varId);
-  delete gPicked[mid];
+  delete picked()[mid];
   Kit.combobox.set('var:' + mid, { label: v ? v.name : varId, value: varId });
   var parts = mid.split('__');
   var tfm = document.getElementById('tfm_' + mid);
@@ -718,7 +727,7 @@ function onDevicesChange(entryId) {
       var mid = escId(label) + '__' + escId(defName);
       Kit.combobox.refresh('var:' + mid);
       var entry = mapping.source === 'variable' ? mappedEntry(mapping.varId) : null;
-      if (!entry || String(entry.id) !== entryId || gPicked[mid]) return;
+      if (!entry || String(entry.id) !== entryId || picked()[mid]) return;
       var v = mappedVariable(mapping.varId);
       if (v) Kit.combobox.set('var:' + mid, { label: v.name, value: mapping.varId });
       previewMapping(mid, defName, mapping, meas, mapping.transform);
