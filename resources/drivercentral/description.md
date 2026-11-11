@@ -1,4 +1,4 @@
-<p><img src="FACTS-STRIP-URL" alt="" width="1200" height="68" /></p>
+<p><img src="https://drivercentral.io/images/companies/61/InfluxDB/facts-strip-2400x136.png?1794365640000" alt="" width="1200" height="68" /></p>
 
 ## Overview
 
