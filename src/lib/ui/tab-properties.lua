@@ -1,12 +1,21 @@
 --- The driver's properties for its web tab: what the tab shows, read once from this build's driver.xml, and the
 --- changes the tab may make. Passwords stay in Composer's Properties tab.
+---
+--- lib/ui/page.js's properties card speaks this, once the driver calls `serve()`: the card asks `_GET_PROPERTIES` and
+--- gets PROPERTIES, `{ properties = list() }`; it sends `_SET_PROPERTY` with `{ property, value }`, and a refusal goes
+--- back as PROPERTY_ERROR, `{ property, error }`.
 
 require("drivers-common-public.global.handlers")
 require("drivers-common-public.global.lib")
 
 local log = require("lib.logging")
+local page = require("lib.ui.page")
+local pageParams = require("lib.ui.page-params")
+--#ifdef DRIVERCENTRAL
+local supportCode = require("lib.support-code")
+--#endif
 
-local SHOWN_TYPES = { LIST = true, STRING = true }
+local SHOWN_TYPES = { LIST = true, STRING = true, RANGED_INTEGER = true }
 
 --- @class TabProperty
 --- @field name string The property's name in driver.xml.
@@ -15,6 +24,8 @@ local SHOWN_TYPES = { LIST = true, STRING = true }
 --- @field description? string Its driver.xml description.
 --- @field value? string Its current value, in what `list` returns.
 --- @field choices? string[] A list's items, or the logger's levels for Log Level.
+--- @field minimum? integer A ranged integer's lowest value.
+--- @field maximum? integer A ranged integer's highest value.
 --- @field logLevels? boolean Set on Log Level, whose choices come from the logger.
 
 --- @class TabProperties
@@ -59,6 +70,9 @@ function TabProperties:_read()
         for item in XMLgCapture(xml, "item") do
           table.insert(property.choices, XMLDecode(item))
         end
+      elseif kind == "RANGED_INTEGER" then
+        property.minimum = tonumber(XMLCapture(xml, "minimum"))
+        property.maximum = tonumber(XMLCapture(xml, "maximum"))
       end
       table.insert(self._config, property)
     end
@@ -99,6 +113,13 @@ local function checked(config, value)
     end
     return nil, string.format("%s has no choice %s.", config.name, value)
   end
+  if config.minimum then
+    local number = tonumber(value)
+    if not number or math.floor(number) ~= number or number < config.minimum or number > config.maximum then
+      return nil, string.format("%s must be a whole number from %d to %d.", config.name, config.minimum, config.maximum)
+    end
+    return string.format("%d", number)
+  end
   return value
 end
 
@@ -118,6 +139,28 @@ function TabProperties:set(name, value)
     end
   end
   return "The tab cannot set " .. tostring(name) .. "."
+end
+
+--- Answers the properties card's two commands, and in a DriverCentral build sends the card its list again as the
+--- Support Code opens and closes the Lua window. Call it once, as the driver loads.
+function TabProperties:serve()
+  UIR._GET_PROPERTIES = function()
+    page.send("PROPERTIES", { properties = self:list() })
+  end
+  UIR._SET_PROPERTY = function(tParams)
+    local params = pageParams(tParams)
+    local err = self:set(params.property, params.value)
+    if err then
+      log:warn("The web tab's property change was refused: %s", err)
+      page.send("PROPERTY_ERROR", { property = tostring(params.property), error = err })
+    end
+  end
+  --#ifdef DRIVERCENTRAL
+  -- The Support Code widens Log Level's list and its hour's end narrows it, and no property handler runs for either.
+  supportCode:follow(function()
+    UIR._GET_PROPERTIES()
+  end)
+  --#endif
 end
 
 --- Calls `push` after each change to a property the tab shows, wherever it was made. Call it once the load's own

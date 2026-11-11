@@ -24,8 +24,10 @@ local SubscriptionEngine = require("lib.subscriptions")
 local MeasurementManager = require("lib.measurements")
 local InfluxClient = require("lib.influx_client")
 local transform = require("lib.transform")
-local agents = require("lib.agents")
-local tabProperties = require("lib.tab-properties")
+local devices = require("lib.ui.devices")
+local page = require("lib.ui.page")
+local pageParams = require("lib.ui.page-params")
+local tabProperties = require("lib.ui.tab-properties")
 local values = require("lib.values")
 
 ---------------------------------------------------------------------------
@@ -234,44 +236,21 @@ end
 -- Web UI Request Handlers (UIR table)
 ---------------------------------------------------------------------------
 
---- Send a response to the web UI via both return value (for REST) and
---- SendDataToUI (for socket push). Returns JSON for REST callers.
---- @param command string The response command name.
---- @param data table The response data.
---- @return string JSON response for REST callers.
-local function uiRespond(command, data)
-  C4:SendDataToUI(command, data)
-  data._command = command
-  return JSON:encode(data)
-end
+tabProperties:serve()
+-- Device Tags takes any item, so entries without variables are listed too.
+devices.serve({ withoutVariables = true })
 
---- Send the full measurement configuration and the tab's properties to the web UI.
+--- Send the full measurement configuration to the web UI.
 function UIR._GET_CONFIG()
-  log:trace("UIR.GET_CONFIG()")
-  local config = measManager:getConfigData()
-  return uiRespond("CONFIG_DATA", {
-    config = JSON:encode(config),
-    properties = JSON:encode(tabProperties:list()),
-  })
-end
-
---- Set one of the driver's properties, as Composer's Properties tab would.
---- @param tParams table
-function UIR._SET_PROPERTY(tParams)
-  log:trace("UIR._SET_PROPERTY()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30=")) or {}
-  local err = tabProperties:set(params.property, params.value)
-  if err then
-    return uiRespond("PROPERTY_ERROR", { payload = JSON:encode({ property = params.property, error = err }) })
-  end
-  return UIR._GET_CONFIG()
+  log:trace("UIR._GET_CONFIG()")
+  page.send("CONFIG_DATA", measManager:getConfigData())
 end
 
 --- Send the driver's status and write counts to the web UI: Driver Status as Composer shows it.
 function UIR._GET_STATUS()
-  log:trace("UIR.GET_STATUS()")
+  log:trace("UIR._GET_STATUS()")
   local metrics = influxWriter and influxWriter:getMetrics() or {}
-  local status = {
+  page.send("STATUS_DATA", {
     driverStatus = Properties["Driver Status"] or "",
     url = Properties["InfluxDB URL"] or "",
     database = Properties["Database"] or "",
@@ -281,211 +260,14 @@ function UIR._GET_STATUS()
     pointsDropped = metrics.pointsDropped or 0,
     writeErrors = metrics.writeErrors or 0,
     watchdogFires = metrics.watchdogFires or 0,
-  }
-  return uiRespond("STATUS_DATA", { status = JSON:encode(status) })
-end
-
---- Whether a proxy merely restates the device that declares it. A proxy named
---- for itself -- a security panel's areas, a receiver's tuner -- must stay its
---- own entry or it vanishes from the picker.
---- @param proxy table|nil The proxy's device definition, if it is in the project.
---- @param owner table The declaring device's definition.
---- @return boolean
-local function isRestatedProxy(proxy, owner)
-  return proxy ~= nil and tostring(proxy.deviceName) == tostring(owner.deviceName)
-end
-
---- Section heading for a member of a merged entry, taken from the proxy's .c4i.
---- @param dev table A device definition from C4:GetDevices().
---- @param isOwner boolean True for the driver itself rather than one of its proxies.
---- @return string label
-local function proxySectionLabel(dev, isOwner)
-  if isOwner then
-    return "Device"
-  end
-  local file = tostring((dev or {}).driverFileName or "")
-  local base = file:match("^(.*)%.c4i$") or file:match("^(.*)%.c4z$")
-  return IsEmpty(base) and "Proxy" or base
-end
-
---- Send the device list to the web UI with display names (Room > Device).
---- Uses C4:GetDevices() for efficiency (avoids parsing large XML from GetProjectItems).
----
---- Reports hasVariables rather than filtering: mapping rows can only bind a
---- variable, but Device Tags only needs the item to exist.
----
---- A driver and the proxies that restate it are folded into one entry via the
---- parent's `proxies` table. Entries that still share a label get the id.
-function UIR._GET_DEVICES()
-  log:trace("UIR.GET_DEVICES()")
-  local devices = {}
-  local allDevices = C4:GetDevices() or {}
-
-  -- Proxy id -> owning driver id, for proxies that only restate their owner.
-  local ownerOf = {}
-  for id, dev in pairs(allDevices) do
-    for proxyId in pairs(dev.proxies or {}) do
-      local pid = tonumber(proxyId) or proxyId
-      if isRestatedProxy(allDevices[pid], dev) then
-        ownerOf[pid] = id
-      end
-    end
-  end
-
-  -- Collapse chains so a proxy of a proxy still lands in an entry rather than
-  -- being dropped for belonging to a device that is not one itself.
-  local rootOf, membersOf = {}, {}
-  for id in pairs(allDevices) do
-    local root, seen = id, { [id] = true }
-    while ownerOf[root] ~= nil and not seen[ownerOf[root]] do
-      root = ownerOf[root]
-      seen[root] = true
-    end
-    rootOf[id] = root
-    membersOf[root] = membersOf[root] or {}
-    table.insert(membersOf[root], id)
-  end
-
-  for id, dev in pairs(allDevices) do
-    if rootOf[id] == id then
-      local memberIds = membersOf[id]
-      table.sort(memberIds)
-
-      local hasVariables = false
-      for _, mid in ipairs(memberIds) do
-        local ok, memberVars = pcall(C4.GetDeviceVariables, C4, mid)
-        if ok and memberVars ~= nil and next(memberVars) ~= nil then
-          hasVariables = true
-          break
-        end
-      end
-
-      local name = dev.deviceName or ("Device " .. id)
-      local displayName = name
-      if not IsEmpty(dev.roomName) then
-        displayName = dev.roomName .. " > " .. name
-      end
-      devices[#devices + 1] = {
-        id = id,
-        name = name,
-        displayName = displayName,
-        roomName = dev.roomName or "",
-        section = "Devices",
-        hasVariables = hasVariables,
-        memberIds = memberIds,
-      }
-    end
-  end
-
-  -- Absent from C4:GetDevices(), so added separately. "Agents" stands in as the
-  -- room to keep the picker's "Room > Device" shape.
-  -- Refreshed per load so a newly added agent appears without a restart.
-  for agentId, agentName in pairs(agents.getAll(true)) do
-    local ok, agentVars = pcall(C4.GetDeviceVariables, C4, agentId)
-    devices[#devices + 1] = {
-      id = agentId,
-      name = agentName,
-      displayName = "Agents > " .. agentName,
-      roomName = "Agents",
-      section = "Agents",
-      hasVariables = ok and agentVars ~= nil and next(agentVars) ~= nil,
-      memberIds = { agentId },
-    }
-  end
-  local labelCounts = {}
-  for _, d in ipairs(devices) do
-    labelCounts[d.displayName] = (labelCounts[d.displayName] or 0) + 1
-  end
-  for _, d in ipairs(devices) do
-    if labelCounts[d.displayName] > 1 then
-      d.displayName = string.format("%s (%s)", d.displayName, d.id)
-    end
-  end
-  -- Devices first so the section headings keep a fixed order.
-  local sectionRank = { Devices = 1, Agents = 2 }
-  table.sort(devices, function(a, b)
-    local ra, rb = sectionRank[a.section] or 9, sectionRank[b.section] or 9
-    if ra ~= rb then
-      return ra < rb
-    end
-    return (a.displayName or "") < (b.displayName or "")
-  end)
-  return uiRespond("DEVICES_DATA", { devices = JSON:encode(devices) })
-end
-
---- Send variables for a device entry to the web UI.
----
---- Returns the entry's variables and its folded proxies', each carrying the id
---- of the member that owns it -- which is what a mapping stores.
---- @param tParams table
-function UIR._GET_DEVICE_VARIABLES(tParams)
-  log:trace("UIR.GET_DEVICE_VARIABLES()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
-  local devId = tonumber(params.deviceId)
-  if not devId then
-    return
-  end
-
-  local entry = C4:GetDevices({ DeviceIds = tostring(devId) })[devId] or {}
-  local members = { { id = devId, section = proxySectionLabel(entry, true), order = 1 } }
-  local queue, seen = { { id = devId, dev = entry } }, { [devId] = true }
-  while #queue > 0 do
-    local cur = table.remove(queue, 1)
-    -- pairs() over proxies has no defined order, so walk them by id: section
-    -- order would otherwise vary between calls.
-    local childIds = {}
-    for proxyId in pairs((cur.dev or {}).proxies or {}) do
-      childIds[#childIds + 1] = tonumber(proxyId) or proxyId
-    end
-    table.sort(childIds)
-    for _, pid in ipairs(childIds) do
-      local proxy = C4:GetDevices({ DeviceIds = tostring(pid) })[pid]
-      if not seen[pid] and isRestatedProxy(proxy, cur.dev) then
-        seen[pid] = true
-        members[#members + 1] = { id = pid, section = proxySectionLabel(proxy, false), order = #members + 1 }
-        queue[#queue + 1] = { id = pid, dev = proxy }
-      end
-    end
-  end
-
-  local vars = {}
-  for _, member in ipairs(members) do
-    local ok, deviceVars = pcall(C4.GetDeviceVariables, C4, member.id)
-    if ok and deviceVars then
-      for varId, varInfo in pairs(deviceVars) do
-        vars[#vars + 1] = {
-          id = tonumber(varId),
-          deviceId = member.id,
-          section = member.section,
-          order = member.order,
-          name = varInfo.name or ("var" .. varId),
-          type = varInfo.type or "STRING",
-          value = varInfo.value,
-        }
-      end
-    end
-  end
-  -- Order on the member's position, not its label: comparing label strings ties
-  -- when a proxy's .c4i is named Device, and the owner-first rule contradicts
-  -- that tie. LuaJIT's table.sort does not reject the resulting cycle, it just
-  -- silently stops putting the device's own variables first.
-  table.sort(vars, function(a, b)
-    if a.order ~= b.order then
-      return a.order < b.order
-    end
-    return (a.name or "") < (b.name or "")
-  end)
-  return uiRespond("DEVICE_VARIABLES_DATA", {
-    deviceId = tostring(devId),
-    variables = JSON:encode(vars),
   })
 end
 
---- Evaluate a transform expression on the driver side and return the result.
+--- Evaluate a transform expression on the driver side and send the page the result.
 --- @param tParams table
 function UIR._EVAL_TRANSFORM(tParams)
   log:trace("UIR._EVAL_TRANSFORM()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   local expression = params.expression or ""
   local rawValue = params.value
   local result, err
@@ -512,14 +294,10 @@ function UIR._EVAL_TRANSFORM(tParams)
     end
   end
 
-  -- Encoded, not sent as scalars: C4:SendDataToUI coerces a numeric string, so
-  -- "50.0" would arrive as 50. The other handlers encode for the same reason.
-  return uiRespond("TRANSFORM_RESULT", {
-    payload = JSON:encode({
-      id = params.id or "",
-      result = result ~= nil and tostring(result) or "",
-      error = err or "",
-    }),
+  page.send("TRANSFORM_RESULT", {
+    id = params.id or "",
+    result = result ~= nil and tostring(result) or "",
+    error = err or "",
   })
 end
 
@@ -527,102 +305,102 @@ end
 --- @param tParams table
 function UIR._ADD_MEASUREMENT(tParams)
   log:trace("UIR.ADD_MEASUREMENT()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.name then
     measManager:add(params.name)
   end
   if subEngine then
     subEngine:restartIntervalTimers()
   end
-  return UIR._GET_CONFIG()
+  UIR._GET_CONFIG()
 end
 
 --- Delete a measurement.
 --- @param tParams table
 function UIR._DELETE_MEASUREMENT(tParams)
   log:trace("UIR.DELETE_MEASUREMENT()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.name then
     measManager:remove(params.name, subEngine, influxWriter)
   end
   if subEngine then
     subEngine:restartIntervalTimers()
   end
-  return UIR._GET_CONFIG()
+  UIR._GET_CONFIG()
 end
 
 --- Add a field definition to a measurement schema.
 --- @param tParams table
 function UIR._ADD_FIELD_DEF(tParams)
   log:trace("UIR.ADD_FIELD_DEF()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.name then
     measManager:addFieldDef(params.measurement, params.name)
   end
   if subEngine then
     subEngine:restartIntervalTimers()
   end
-  return UIR._GET_CONFIG()
+  UIR._GET_CONFIG()
 end
 
 --- Remove a field definition from a measurement schema.
 --- @param tParams table
 function UIR._REMOVE_FIELD_DEF(tParams)
   log:trace("UIR.REMOVE_FIELD_DEF()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.name then
     measManager:removeFieldDef(params.measurement, params.name, subEngine)
   end
   if subEngine then
     subEngine:restartIntervalTimers()
   end
-  return UIR._GET_CONFIG()
+  UIR._GET_CONFIG()
 end
 
 --- Pin or clear the InfluxDB type for a schema field.
 --- @param tParams table
 function UIR._SET_FIELD_TYPE(tParams)
   log:trace("UIR.SET_FIELD_TYPE()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.name then
     measManager:setFieldType(params.measurement, params.name, params.valueType)
   end
-  return UIR._GET_CONFIG()
+  UIR._GET_CONFIG()
 end
 
 --- Add a tag definition to a measurement schema.
 --- @param tParams table
 function UIR._ADD_TAG_DEF(tParams)
   log:trace("UIR.ADD_TAG_DEF()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.name then
     measManager:addTagDef(params.measurement, params.name)
   end
   if subEngine then
     subEngine:restartIntervalTimers()
   end
-  return UIR._GET_CONFIG()
+  UIR._GET_CONFIG()
 end
 
 --- Remove a tag definition from a measurement schema.
 --- @param tParams table
 function UIR._REMOVE_TAG_DEF(tParams)
   log:trace("UIR.REMOVE_TAG_DEF()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.name then
     measManager:removeTagDef(params.measurement, params.name, subEngine)
   end
   if subEngine then
     subEngine:restartIntervalTimers()
   end
-  return UIR._GET_CONFIG()
+  UIR._GET_CONFIG()
 end
 
 --- Update measurement settings (interval, enabled).
 --- @param tParams table
 function UIR._UPDATE_MEAS_SETTINGS(tParams)
   log:trace("UIR.UPDATE_MEAS_SETTINGS()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement then
     measManager:updateSettings(params.measurement, {
       interval = params.interval,
@@ -633,63 +411,63 @@ function UIR._UPDATE_MEAS_SETTINGS(tParams)
   if subEngine then
     subEngine:restartIntervalTimers()
   end
-  return UIR._GET_CONFIG()
+  UIR._GET_CONFIG()
 end
 
 --- Add a reading to a measurement.
 --- @param tParams table
 function UIR._ADD_READING(tParams)
   log:trace("UIR.ADD_READING()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.label then
     measManager:addReading(params.measurement, params.label)
   end
   if subEngine then
     subEngine:restartIntervalTimers()
   end
-  return UIR._GET_CONFIG()
+  UIR._GET_CONFIG()
 end
 
 --- Remove a reading from a measurement.
 --- @param tParams table
 function UIR._REMOVE_READING(tParams)
   log:trace("UIR.REMOVE_READING()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.label then
     measManager:removeReading(params.measurement, params.label, subEngine, influxWriter)
   end
   if subEngine then
     subEngine:restartIntervalTimers()
   end
-  return UIR._GET_CONFIG()
+  UIR._GET_CONFIG()
 end
 
 --- Save a mapping for a reading.
 --- @param tParams table
 function UIR._SAVE_MAPPING(tParams)
   log:trace("UIR.SAVE_MAPPING()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.reading and params.name and params.mapping then
     measManager:setMapping(params.measurement, params.reading, params.name, params.mapping, subEngine)
   end
   if subEngine then
     subEngine:restartIntervalTimers()
   end
-  return UIR._GET_CONFIG()
+  UIR._GET_CONFIG()
 end
 
 --- Update reading enabled state.
 --- @param tParams table
 function UIR._UPDATE_READING_ENABLED(tParams)
   log:trace("UIR.UPDATE_READING_ENABLED()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if params.measurement and params.label then
     measManager:setReadingEnabled(params.measurement, params.label, params.enabled, subEngine)
   end
   if subEngine then
     subEngine:restartIntervalTimers()
   end
-  return UIR._GET_CONFIG()
+  UIR._GET_CONFIG()
 end
 
 --- Include device_name and room_name tags for a device on a specific reading.
@@ -697,9 +475,10 @@ end
 --- @param tParams table
 function UIR._INCLUDE_DEVICE_TAGS(tParams)
   log:trace("UIR.INCLUDE_DEVICE_TAGS()")
-  local params = JSON:decode(C4:Base64Decode(tParams.DATA or "e30="))
+  local params = pageParams(tParams)
   if not params.measurement or not params.deviceId then
-    return UIR._GET_CONFIG()
+    UIR._GET_CONFIG()
+    return
   end
 
   local measName = params.measurement
@@ -739,7 +518,7 @@ function UIR._INCLUDE_DEVICE_TAGS(tParams)
   if subEngine then
     subEngine:restartIntervalTimers()
   end
-  return UIR._GET_CONFIG()
+  UIR._GET_CONFIG()
 end
 
 ---------------------------------------------------------------------------
@@ -903,18 +682,11 @@ function OnDriverLateInit()
   end, true)
   --#endif
 
-  -- After the load's own property changes, so the tab hears only changes made from here on. The status too: its
-  -- server line shows InfluxDB URL and Database.
+  -- After the load's own property changes, so the tab hears only changes made from here on: the status's server line
+  -- shows InfluxDB URL and Database.
   tabProperties:follow(function()
-    UIR._GET_CONFIG()
     UIR._GET_STATUS()
   end)
-  --#ifdef DRIVERCENTRAL
-  -- A Support Code widens Log Level's list, and its hour's end narrows it, with no property handler running.
-  supportCode:onChange(function()
-    UIR._GET_CONFIG()
-  end)
-  --#endif
 
   log:info("InfluxDB Data Logger initialized")
 end

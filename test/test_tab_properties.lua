@@ -1,6 +1,6 @@
 -- The Status tab's Properties card and status card, in the real driver: the properties the tab is sent, a change made
 -- from it, the changes it is turned away from, a change made in Composer reaching it, the status it shows, and the
--- tab bar that shows only with two or more tabs.
+-- page wired to lib/ui for its tab bar and Properties card.
 --
 -- Run from the driver root:
 --   make test
@@ -17,28 +17,12 @@ local posts = common.boot({ AC = 1, AS = "License Activated" }, 999)
 local ROOT = (debug.getinfo(1, "S").source:match("@(.*[/\\])") or "./") .. "../"
 
 local pushes = {}
-function C4:SendDataToUI(command, data)
-  pushes[#pushes + 1] = { command = command, data = data }
+function C4:SendDataToUI(command, params)
+  pushes[#pushes + 1] = { command = command, json = params.json, data = JSON:decode(params.json) }
 end
 
 local function data(t)
   return { DATA = C4:Base64Encode(JSON:encode(t)) }
-end
-
-local function set(name, value)
-  return JSON:decode(UIR._SET_PROPERTY(data({ property = name, value = value })))
-end
-
-local function shown()
-  return JSON:decode(JSON:decode(UIR._GET_CONFIG()).properties)
-end
-
-local function property(name)
-  for _, p in ipairs(shown()) do
-    if p.name == name then
-      return p
-    end
-  end
 end
 
 local function pushed(command, since)
@@ -49,6 +33,48 @@ local function pushed(command, since)
     end
   end
   return n
+end
+
+--- The last push of a command since a mark.
+local function last(command, since)
+  local found
+  for i = (since or 0) + 1, #pushes do
+    if pushes[i].command == command then
+      found = pushes[i]
+    end
+  end
+  return found
+end
+
+--- Sets a property from the tab.
+--- @return table|nil refusal What the driver pushed back, or nil once it is set.
+local function set(name, value)
+  local mark = #pushes
+  UIR._SET_PROPERTY(data({ property = name, value = value }))
+  local refusal = last("PROPERTY_ERROR", mark)
+  return refusal and refusal.data
+end
+
+--- What the properties card is sent when it asks.
+local function shown()
+  local mark = #pushes
+  UIR._GET_PROPERTIES()
+  return last("PROPERTIES", mark).data.properties
+end
+
+local function property(name)
+  for _, p in ipairs(shown()) do
+    if p.name == name then
+      return p
+    end
+  end
+end
+
+--- The raw message a command pushes when asked.
+local function asked(command, answer)
+  local mark = #pushes
+  UIR[command]()
+  return last(answer, mark).json
 end
 
 local watts = 100
@@ -80,8 +106,9 @@ do
     "Offline Buffer and Retry"
   )
   T.eq("API Token stays in Composer", names["API Token"], nil)
-  T.excludes("and its value never reaches the tab's config", UIR._GET_CONFIG(), "throwaway")
-  T.excludes("or its status", UIR._GET_STATUS(), "throwaway")
+  T.excludes("and its value never reaches the tab's properties", asked("_GET_PROPERTIES", "PROPERTIES"), "throwaway")
+  T.excludes("or its config", asked("_GET_CONFIG", "CONFIG_DATA"), "throwaway")
+  T.excludes("or its status", asked("_GET_STATUS", "STATUS_DATA"), "throwaway")
   T.eq("and so does the Support Code", names["Support Code"], nil)
   T.eq("Driver Status is read-only", names["Driver Status"].readonly, true)
   T.eq("Write Precision offers its choices", names["Write Precision"].choices, { "ns", "us", "ms", "s" })
@@ -112,10 +139,9 @@ end
 T.section("A change from the tab")
 do
   local mark = #posts
-  local reply = set("Write Precision", "s")
-  T.eq("the driver answers with the config", reply._command, "CONFIG_DATA")
+  T.eq("is taken", set("Write Precision", "s"), nil)
   T.eq("the property is set", Properties["Write Precision"], "s")
-  T.eq("and the answer shows it", property("Write Precision").value, "s")
+  T.eq("and the card's next ask shows it", property("Write Precision").value, "s")
   write()
   local url
   for i = mark + 1, #posts do
@@ -127,14 +153,12 @@ end
 
 T.section("Changes the tab is turned away from")
 do
-  local reply = set("Write Precision", "minutes")
-  T.eq("a value the list doesn't have", reply._command, "PROPERTY_ERROR")
-  local refusal = JSON:decode(reply.payload or "{}")
-  T.eq("names the property, in one JSON string", refusal.property, "Write Precision")
+  local refusal = set("Write Precision", "minutes") or {}
+  T.eq("a value the list doesn't have names the property", refusal.property, "Write Precision")
   T.truthy("and says why", (refusal.error or "") ~= "", refusal.error)
   T.eq("and the property keeps its value", Properties["Write Precision"], "ms")
-  T.eq("a read-only property", set("Driver Status", "Fine")._command, "PROPERTY_ERROR")
-  T.eq("a password", set("API Token", "x")._command, "PROPERTY_ERROR")
+  T.neq("a read-only property", set("Driver Status", "Fine"), nil)
+  T.neq("a password", set("API Token", "x"), nil)
 end
 
 T.section("A change made in Composer reaches the tab")
@@ -142,8 +166,8 @@ do
   local mark = #pushes
   Properties["Log Mode"] = "Print"
   OnPropertyChanged("Log Mode")
-  T.eq("the tab is sent the config", pushed("CONFIG_DATA", mark), 1)
-  T.eq("with the new value", property("Log Mode").value, "Print")
+  T.eq("the tab is sent the status", pushed("STATUS_DATA", mark), 1)
+  T.eq("and the card's next ask shows the new value", property("Log Mode").value, "Print")
   Properties["Log Mode"] = "Off"
   OnPropertyChanged("Log Mode")
 end
@@ -152,12 +176,7 @@ T.section("A new server or database reaches the status card at once")
 do
   local mark = #pushes
   set("Database", "garden")
-  local status
-  for i = mark + 1, #pushes do
-    if pushes[i].command == "STATUS_DATA" then
-      status = JSON:decode(pushes[i].data.status)
-    end
-  end
+  local status = (last("STATUS_DATA", mark) or {}).data
   T.truthy("the tab is sent the status", status ~= nil)
   T.eq("with the new database", status and status.database, "garden")
   set("Database", "home")
@@ -165,7 +184,7 @@ end
 
 T.section("The status card")
 do
-  local status = JSON:decode(JSON:decode(UIR._GET_STATUS()).status)
+  local status = JSON:decode(asked("_GET_STATUS", "STATUS_DATA"))
   T.eq("Driver Status is sent exactly as Composer shows it", status.driverStatus, Properties["Driver Status"])
   T.eq("with the watchdog count", status.watchdogFires, 0)
   T.truthy("and the last write", (status.lastWrite or 0) > 0, status.lastWrite)
@@ -185,21 +204,34 @@ do
   local fh = assert(io.open(ROOT .. "drivers/influxdb/www/html/index.html", "r"))
   local page = fh:read("*a")
   fh:close()
-  T.truthy("the tab bar is hidden by default", page:find("%.nav {%s*display: none;") ~= nil)
+  -- The tab bar and the Properties card are lib/ui's, which its own tests cover; this checks the page is wired to it.
   T.truthy(
-    "and shown from two tabs",
-    page:find("classList.toggle('multi', document.querySelectorAll('.nav-tab').length > 1)", 1, true) ~= nil
+    "the page embeds the kit's stylesheet",
+    page:find("<!-- #embed ../../../../src/lib/ui/style.css -->", 1, true) ~= nil
   )
+  T.truthy("and its script", page:find("<!-- #embed ../../../../src/lib/ui/page.js -->", 1, true) ~= nil)
+  T.truthy("which runs the tab bar", page:find("Kit.initTabs(onTabSwitch, { hash: true })", 1, true) ~= nil)
+  T.truthy("and the Properties card", page:find("initPropertiesCard(document.getElementById('props'))", 1, true) ~= nil)
   T.eq("no Settings tab", page:find('data-panel="settings"', 1, true), nil)
   T.truthy("a Properties card on the Status tab", page:find('id="props-card"', 1, true) ~= nil)
 end
 
 T.section("A Support Code changes Log Level's list")
 do
-  -- No secret in a test build, so the code's own change is told directly.
+  -- No secret in a test build, so the code's own change is made directly.
+  local code = require("lib.support-code")
+  code:_allowLevels(false)
+  local closed = #property("Log Level").choices
+  code:_allowLevels(true)
+  T.truthy("the card's next ask offers Trace and Ultra", #property("Log Level").choices > closed)
+  code:_allowLevels(false)
+  T.eq("and the one after the hour's end stops at Debug", #property("Log Level").choices, closed)
   local mark = #pushes
-  require("lib.support-code"):_tell(true)
-  T.eq("the tab is sent the config", pushed("CONFIG_DATA", mark), 1)
+  code:_tell(true)
+  T.eq("opening it sends the card its list", pushed("PROPERTIES", mark), 1)
+  mark = #pushes
+  code:_tell(false)
+  T.eq("and so does the hour's end", pushed("PROPERTIES", mark), 1)
 end
 
 T.section("Nothing reaches the tab once the driver is destroyed")
