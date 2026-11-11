@@ -7,28 +7,13 @@
   <style>
 <!-- #embed ../../../../src/lib/ui/style.css -->
 <!-- #embed ../../../../src/lib/ui/variables.css -->
+<!-- #embed ../../../../src/lib/ui/combobox.css -->
 
     .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-    .chip-field { background: #dbeafe; color: #1d4ed8; }
-    .chip-tag { background: #d1fae5; color: #059669; }
-    .chip-on { background: #d1fae5; color: var(--success); }
-    .chip-off { background: #fee2e2; color: var(--danger); }
 
-    .flex { display: flex; }
-    .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-    .gap-8 { gap: 8px; }
     .mb-8 { margin-bottom: 8px; }
     .mb-12 { margin-bottom: 12px; }
     .mt-12 { margin-top: 12px; }
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-    @media (max-width: 560px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
-
-    .back-link { color: var(--accent); cursor: pointer; font-size: 12px; margin-bottom: 10px; display: inline-block; }
-    .back-link:hover { text-decoration: underline; }
-
-    .input-valid { border-color: var(--success) !important; }
-    .error-text { color: var(--danger); font-size: 11px; margin-top: 4px; }
 
     /* No `overflow` here: the searchable dropdowns are absolutely positioned
        children and any clipping ancestor would cut their popups off. */
@@ -48,7 +33,6 @@
        the select takes its text's width. */
     .mapping-row > select, .mapping-row > input { min-width: 0; }
     .reading-head select { width: auto; }
-    .mapping-row .search-select { min-width: 0; }
     .mapping-span2 { grid-column: span 2; }
     .mapping-preview { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; text-align: left; display: block; }
     /* Narrow panes: drop transform + preview onto a second line. */
@@ -60,44 +44,6 @@
       .mapping-row .mapping-transform { grid-column: 2 / 4; }
       .mapping-row .mapping-preview { grid-column: 4 / 5; }
     }
-
-    /* Searchable dropdown: its trigger is a div drawn as a compact select. */
-    .search-select { position: relative; display: inline-block; }
-    /* Lift the whole control while open so its popup clears sibling cards. */
-    .search-select.open { z-index: 60; }
-    .search-select-trigger {
-      width: 100%; padding: 4px 24px 4px 7px; font-size: 12px; line-height: 18px;
-      border: 1px solid var(--border); border-radius: var(--radius);
-      background-color: var(--surface); background-image: var(--chevron);
-      background-repeat: no-repeat; background-position: right 7px center; background-size: 10px 6px;
-      cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-      color: var(--text);
-    }
-    .search-select-trigger.placeholder { color: var(--text-muted); }
-    .search-select-popup {
-      display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 70;
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      min-width: 220px;
-    }
-    .search-select.open .search-select-popup { display: block; }
-    /* Flipped by positionSearchPopup() when the popup would leave the pane. */
-    .search-select-popup.flip-right { left: auto; right: 0; }
-    .search-select-popup.flip-up { top: auto; bottom: 100%; }
-    .search-select-popup .search-select-search {
-      padding: 5px 8px; font-size: 12px; box-shadow: none;
-      border: none; border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0;
-    }
-    .search-select-list { max-height: 180px; overflow-y: auto; }
-    .search-select-item { padding: 4px 8px; cursor: pointer; font-size: 12px; }
-    .search-select-item:hover { background: var(--surface-hover); }
-    .search-select-item.selected { background: #dbeafe; }
-    .search-select-section {
-      padding: 4px 8px 2px; font-size: 9.5px; font-weight: 700;
-      letter-spacing: 0.6px; text-transform: uppercase; color: #9ca3af;
-      border-top: 1px solid var(--border);
-    }
-    .search-select-list > .search-select-section:first-child { border-top: none; }
 
     /* Schema entries are rows, not pills: field names run to 20+ characters and
        a pill wide enough for one plus a type control leaves the name as "hu...". */
@@ -160,7 +106,7 @@
 <!-- Measurements Panel -->
 <div id="panel-measurements" class="panel">
   <div id="meas-list-view">
-    <div class="flex-between mb-12">
+    <div class="kit-between mb-12">
       <h2 style="font-size: 16px; font-weight: 600;">Measurements</h2>
       <button class="btn btn-primary" onclick="addMeasurement()">+ Add Measurement</button>
     </div>
@@ -177,14 +123,14 @@
 
   <!-- Create Measurement View -->
   <div id="meas-create" style="display:none;">
-    <span class="back-link" onclick="showMeasList()">&larr; Back to Measurements</span>
+    <button type="button" class="btn-link" style="margin-bottom:10px;" onclick="showMeasList()">&larr; Back to Measurements</button>
     <h2 style="font-size:16px; font-weight:600; margin-bottom:12px;">New Measurement</h2>
     <div class="card">
       <label for="create-meas-name">Measurement Name <span style="color:var(--danger);">*</span></label>
       <input type="text" id="create-meas-name" placeholder="e.g. battery, temperature, energy" oninput="validateMeasName()"/>
-      <div id="create-meas-error" class="error-text" style="display:none;"></div>
+      <div id="create-meas-error" class="kit-msg sm bad" style="display:none;"></div>
       <p class="note">This becomes the InfluxDB measurement name. Spaces and commas are converted to underscores.</p>
-      <div class="flex gap-8 mt-12">
+      <div class="kit-row mt-12">
         <button class="btn btn-primary" id="create-meas-btn" onclick="saveNewMeasurement()" disabled>Create Measurement</button>
         <button class="btn btn-outline" onclick="showMeasList()">Cancel</button>
       </div>
@@ -193,15 +139,15 @@
 
   <!-- Edit Measurement View -->
   <div id="meas-editor" style="display:none;">
-    <span class="back-link" onclick="showMeasList()">&larr; Back to Measurements</span>
+    <button type="button" class="btn-link" style="margin-bottom:10px;" onclick="showMeasList()">&larr; Back to Measurements</button>
     <h2 id="meas-editor-title" style="font-size:16px; font-weight:600; margin-bottom:12px;"></h2>
 
     <div class="card">
       <h3>Schema</h3>
-      <div class="grid-2">
+      <div class="kit-grid-2">
         <div>
           <label>Fields</label>
-          <div class="flex gap-8 mb-8">
+          <div class="kit-row mb-8">
             <input type="text" id="new-field-name" placeholder="Field name" style="flex:1;" oninput="this.classList.remove('input-error');this.title='';"/>
             <button class="btn btn-outline btn-sm" onclick="addFieldDef()">Add</button>
           </div>
@@ -209,7 +155,7 @@
         </div>
         <div>
           <label>Tags</label>
-          <div class="flex gap-8 mb-8">
+          <div class="kit-row mb-8">
             <input type="text" id="new-tag-name" placeholder="Tag name" style="flex:1;" oninput="this.classList.remove('input-error');this.title='';"/>
             <button class="btn btn-outline btn-sm" onclick="addTagDef()">Add</button>
           </div>
@@ -221,7 +167,7 @@
 
     <div class="card">
       <h3>Settings</h3>
-      <div class="grid-3">
+      <div class="kit-grid-3">
         <div>
           <label for="meas-interval">Write Interval</label>
           <select id="meas-interval" onchange="updateMeasSettings()">
@@ -246,9 +192,9 @@
     </div>
 
     <div class="card">
-      <div class="flex-between mb-8">
+      <div class="kit-between mb-8">
         <h3 style="margin:0;">Readings</h3>
-        <div class="flex gap-8">
+        <div class="kit-row">
           <input type="text" id="new-reading-label" placeholder="Reading label" style="width:180px;" oninput="this.classList.remove('input-error');this.title='';"/>
           <button class="btn btn-outline btn-sm" onclick="addReading()">Add Reading</button>
         </div>
@@ -262,6 +208,7 @@
 <script>
 <!-- #embed ../../../../src/lib/ui/page.js -->
 <!-- #embed ../../../../src/lib/ui/variables.js -->
+<!-- #embed ../../../../src/lib/ui/combobox.js -->
 
 // ============================================================
 // State
@@ -347,10 +294,10 @@ function renderMeasList() {
     var rc = Object.keys(m.readings || {}).length;
     html += '<tr>' +
       '<td class="trunc" title="' + Kit.esc(name) + '"><a href="#measurements/' + encodeURIComponent(name) + '" style="color:var(--accent);font-weight:500;">' + Kit.esc(name) + '</a></td>' +
-      '<td>' + (m.fieldDefs||[]).map(function(f){return '<span class="chip chip-field">'+Kit.esc(f)+'</span> ';}).join('') + '</td>' +
-      '<td>' + (m.tagDefs||[]).map(function(t){return '<span class="chip chip-tag">'+Kit.esc(t)+'</span> ';}).join('') + '</td>' +
+      '<td>' + (m.fieldDefs||[]).map(function(f){return '<span class="chip blue">'+Kit.esc(f)+'</span> ';}).join('') + '</td>' +
+      '<td>' + (m.tagDefs||[]).map(function(t){return '<span class="chip green">'+Kit.esc(t)+'</span> ';}).join('') + '</td>' +
       '<td>' + rc + '</td>' +
-      '<td><span class="chip '+(m.enabled!==false?'chip-on':'chip-off')+'">'+(m.enabled!==false?'On':'Off')+'</span></td>' +
+      '<td><span class="chip '+(m.enabled!==false?'green':'red')+'">'+(m.enabled!==false?'On':'Off')+'</span></td>' +
       '<td><button class="btn btn-danger btn-sm" onclick="deleteMeasurement(\''+Kit.esc(name)+'\')">Delete</button></td></tr>';
   });
   tbody.innerHTML = html;
@@ -427,7 +374,7 @@ function renderMeasEditor(name) {
       var lbl = o === '' ? 'Auto' : o.charAt(0).toUpperCase()+o.slice(1);
       return '<option value="'+o+'"'+(o===t?' selected':'')+'>'+lbl+'</option>';
     }).join('');
-    return '<div class="schema-item chip-field" title="'+Kit.esc(f)+'">'+
+    return '<div class="schema-item chip blue" title="'+Kit.esc(f)+'">'+
       '<span class="chip-label">'+Kit.esc(f)+'</span>'+
       '<select class="chip-type" title="InfluxDB column type. A column has one type, so it is set here rather than per reading. Auto infers from each value." '+
       'onchange="setFieldType(\''+Kit.esc(f)+'\', this.value)">'+opts+'</select>'+
@@ -437,7 +384,7 @@ function renderMeasEditor(name) {
   document.getElementById('schema-fields').innerHTML = fh;
 
   var th = (m.tagDefs||[]).map(function(t) {
-    return '<div class="schema-item chip-tag" title="'+Kit.esc(t)+'">'+
+    return '<div class="schema-item chip green" title="'+Kit.esc(t)+'">'+
       '<span class="chip-label">'+Kit.esc(t)+'</span>'+
       '<span class="chip-x" onclick="removeTagDef(\''+Kit.esc(t)+'\')">&times;</span></div>';
   }).join('');
@@ -519,11 +466,11 @@ function renderReadings(measName, meas) {
     var eid = escId(label);
     html += '<div class="reading-card">';
     // Reading header with device tags selector
-    html += '<div class="flex-between mb-8 reading-head"><strong>'+Kit.esc(label)+'</strong><div class="flex gap-8">';
-    html += '<div class="search-select" id="dtss_'+eid+'" style="width:180px;">';
-    html += '<div class="search-select-trigger placeholder" onclick="openDeviceSearch(\'dt_'+eid+'\',true)" data-devid="" id="devin_dt_'+eid+'">+ Device Tags...</div>';
-    html += '<div class="search-select-popup"><input type="text" class="search-select-search" placeholder="Search..." oninput="filterDeviceSearch(\'dt_'+eid+'\',this.value,true)"/>';
-    html += '<div class="search-select-list" id="devlist_dt_'+eid+'"></div></div></div>';
+    html += '<div class="kit-between mb-8 reading-head"><strong>'+Kit.esc(label)+'</strong><div class="kit-row">';
+    html += Kit.combobox('dt:' + eid, {
+      placeholder: '+ Device Tags...', items: deviceItems(true), style: 'width:180px',
+      onPick: function(id) { onReadingDeviceTags(eid, id); }
+    });
     html += '<select class="sm" onchange="toggleReadingEnabled(\''+eid+'\',this.value)" title="Enable/disable this reading">';
     html += '<option value="true"'+(reading.enabled!==false?' selected':'')+'>Enabled</option>';
     html += '<option value="false"'+(reading.enabled===false?' selected':'')+'>Disabled</option></select>';
@@ -539,7 +486,7 @@ function renderReadings(measName, meas) {
       html += '<div class="mapping-row">';
 
       // Col 1: Name chip
-      html += '<span class="chip '+(isField?'chip-field':'chip-tag')+'" title="'+Kit.esc(defName)+'">'+
+      html += '<span class="chip '+(isField?'blue':'green')+'" title="'+Kit.esc(defName)+'">'+
         '<span class="chip-label">'+Kit.esc(defName)+'</span></span>';
 
       // Col 2: Source selector
@@ -549,20 +496,17 @@ function renderReadings(measName, meas) {
 
       // Col 3+4: Device & Variable (or Literal spanning both, or Not mapped spanning both)
       if (source === 'variable') {
-        var entry = mappedEntry(mapping.varId);
-        var selDevId = entry ? String(entry.id) : (mapping.varId ? mapping.varId.split(':')[0] : '');
-        var selDevLabel = entry ? deviceLabel(entry) : (selDevId ? 'Device ' + selDevId : '');
-        html += '<div class="search-select" id="devss_'+mid+'">';
-        html += '<div class="search-select-trigger'+(selDevId?'':' placeholder')+'" onclick="openDeviceSearch(\''+mid+'\')" data-devid="'+Kit.esc(selDevId)+'"';
-        html += ' title="'+Kit.esc(selDevLabel)+'" id="devin_'+mid+'">'+Kit.esc(selDevLabel || 'Device...')+'</div>';
-        html += '<div class="search-select-popup"><input type="text" class="search-select-search" placeholder="Search..." oninput="filterDeviceSearch(\''+mid+'\',this.value)"/>';
-        html += '<div class="search-select-list" id="devlist_'+mid+'"></div></div></div>';
-        var selVar = mappedVariable(mapping.varId);
-        var selVarLabel = selVar ? selVar.name : '';
-        html += '<div class="search-select" id="varss_'+mid+'">';
-        html += '<div class="search-select-trigger'+(selVarLabel?'':' placeholder')+'" onclick="openVarSearch(\''+mid+'\')" data-varid="'+Kit.esc(mapping.varId||'')+'"';
-        html += ' title="'+Kit.esc(selVarLabel)+'" id="varin_'+mid+'">'+Kit.esc(selVarLabel || 'Variable...')+'</div>';
-        html += '<div class="search-select-popup"><div class="search-select-list" id="varlist_'+mid+'"></div></div></div>';
+        var devId = pickedDevice(mid, mapping);
+        html += Kit.combobox('dev:' + mid, {
+          placeholder: 'Device...', label: devId ? deviceName(devId) : '', value: devId, items: deviceItems(false),
+          onPick: function(id) { pickDevice(mid, id); }
+        });
+        var selVar = gPicked[mid] ? null : mappedVariable(mapping.varId);
+        html += Kit.combobox('var:' + mid, {
+          placeholder: 'Variable...', label: selVar ? selVar.name : '', value: gPicked[mid] ? '' : mapping.varId || '',
+          search: false, empty: 'No variables found', items: function() { return variableItems(mid, mapping); },
+          onPick: function(varId) { pickVariable(mid, varId); }
+        });
       } else if (source === 'literal') {
         html += '<input type="text" class="mapping-span2 sm" id="lit_'+mid+'" value="'+Kit.esc(mapping.literal||'')+'" placeholder="Value" onchange="onLitChange(\''+eid+'\',\''+escId(defName)+'\')"/>';
       } else {
@@ -586,146 +530,52 @@ function renderReadings(measName, meas) {
   container.innerHTML = html;
 }
 
-// Nudge an open popup back inside the pane: it is left-anchored with a
-// min-width, so a trigger near an edge would otherwise spill off-screen.
-function positionSearchPopup(ss) {
-  var popup = ss.querySelector('.search-select-popup');
-  if (!popup) return;
-  popup.classList.remove('flip-right', 'flip-up');
-  var r = popup.getBoundingClientRect();
-  if (r.right > document.documentElement.clientWidth - 8) popup.classList.add('flip-right');
-  var trigger = ss.querySelector('.search-select-trigger');
-  var spaceBelow = document.documentElement.clientHeight - (trigger ? trigger.getBoundingClientRect().bottom : r.top);
-  var spaceAbove = trigger ? trigger.getBoundingClientRect().top : r.top;
-  if (r.height > spaceBelow - 8 && spaceAbove > spaceBelow) popup.classList.add('flip-up');
+// A device picked in a row before its variable: the row shows it until the variable is picked and saved.
+var gPicked = {};
+
+function pickedDevice(mid, mapping) {
+  if (gPicked[mid]) return gPicked[mid];
+  var entry = mappedEntry(mapping.varId);
+  return entry ? String(entry.id) : (mapping.varId ? mapping.varId.split(':')[0] : '');
 }
 
-function closeOnOutsideClick(ss) {
-  setTimeout(function() {
-    document.addEventListener('click', function closeHandler(e) {
-      if (!ss.contains(e.target)) { ss.classList.remove('open'); document.removeEventListener('click', closeHandler); }
-    });
-  }, 0);
-}
-
-function openDeviceSearch(mid, isTagPicker) {
-  // Container: dtss_<reading> for device tags, devss_<mapping> for mapping rows.
-  var ss = isTagPicker
-    ? document.getElementById('dtss_' + mid.substring(3))
-    : document.getElementById('devss_' + mid);
-  if (!ss) return;
-  var wasOpen = ss.classList.contains('open');
-  // Close all other open ones
-  document.querySelectorAll('.search-select.open').forEach(function(el) { el.classList.remove('open'); });
-  if (wasOpen) return;
-  ss.classList.add('open');
-  filterDeviceSearch(mid, '', isTagPicker);
-  positionSearchPopup(ss);
-  var searchInput = ss.querySelector('.search-select-search');
-  if (searchInput) { searchInput.value = ''; searchInput.focus(); }
-  closeOnOutsideClick(ss);
-}
-
-function filterDeviceSearch(mid, query, isTagPicker) {
-  var list = document.getElementById('devlist_' + mid);
-  if (!list) return;
-  var q = (query || '').toLowerCase();
-  var selDevId = '';
-  var trigger = document.getElementById('devin_' + mid);
-  if (trigger) selDevId = trigger.dataset.devid || '';
-  // Device Tags only needs the item to exist; a mapping row must bind a
-  // variable. The caller says which -- a reading label can escId into `dt_`.
-  var html = '';
-  var lastSection = null;
-  Kit.devices.list().forEach(function(d) {
-    if (!isTagPicker && d.hasVariables === false) return;
-    var label = deviceLabel(d);
-    if (q && label.toLowerCase().indexOf(q) < 0) return;
-    if (d.section && d.section !== lastSection) {
-      html += '<div class="search-select-section">'+Kit.esc(d.section)+'</div>';
-      lastSection = d.section;
-    }
-    var cls = String(d.id) === selDevId ? ' selected' : '';
-    html += '<div class="search-select-item'+cls+'" onclick="selectDevice(\''+mid+'\',\''+d.id+'\','+(isTagPicker?'true':'false')+')">'+Kit.esc(label)+'</div>';
-  });
-  list.innerHTML = html || '<div class="search-select-item" style="color:var(--text-muted);">No matches</div>';
-  // Filtering changes the popup height, so re-check whether it still fits.
-  var ss = list.closest('.search-select');
-  if (ss && ss.classList.contains('open')) positionSearchPopup(ss);
-}
-
-function selectDevice(mid, devId, isTagPicker) {
-  var trigger = document.getElementById('devin_' + mid);
-  var ss = isTagPicker
-    ? document.getElementById('dtss_' + mid.substring(3))
-    : document.getElementById('devss_' + mid);
-  if (ss) ss.classList.remove('open');
-
-  if (isTagPicker) {
-    onReadingDeviceTags(mid.substring(3), devId);
-    // Reset to placeholder after selection
-    if (trigger) { trigger.textContent = '+ Device Tags...'; trigger.dataset.devid = ''; trigger.classList.add('placeholder'); }
-    return;
-  }
-
+function deviceName(devId) {
   var d = Kit.devices.device(devId);
-  var label = d ? deviceLabel(d) : 'Device ' + devId;
-  if (trigger) { trigger.textContent = label; trigger.title = label; trigger.dataset.devid = devId; trigger.classList.remove('placeholder'); }
-  // A new device clears the variable, and its list is asked for now.
-  var varTrigger = document.getElementById('varin_' + mid);
-  if (varTrigger) { varTrigger.textContent = 'Variable...'; varTrigger.dataset.varid = ''; varTrigger.classList.add('placeholder'); }
+  return d ? deviceLabel(d) : 'Device ' + devId;
+}
+
+// Device Tags only needs the item to exist; a mapping row must bind a variable.
+function deviceItems(forTags) {
+  return function() {
+    return Kit.devices.list().filter(function(d) { return forTags || d.hasVariables !== false; }).map(function(d) {
+      return { value: String(d.id), label: deviceLabel(d), section: d.section };
+    });
+  };
+}
+
+// The row's device's variables, null while they load.
+function variableItems(mid, mapping) {
+  var devId = pickedDevice(mid, mapping);
+  if (!devId) return [];
+  var vars = Kit.devices.variables(devId);
+  return vars && vars.map(function(v) {
+    return { value: (v.deviceId != null ? v.deviceId : devId) + ':' + v.id, label: v.name, section: v.section };
+  });
+}
+
+// A new device clears the row's variable, and its list is asked for now.
+function pickDevice(mid, devId) {
+  gPicked[mid] = devId;
+  Kit.combobox.set('dev:' + mid, { label: deviceName(devId), value: devId });
+  Kit.combobox.set('var:' + mid, { label: '', value: '' });
   Kit.devices.variables(devId);
 }
 
-function openVarSearch(mid) {
-  var ss = document.getElementById('varss_' + mid);
-  if (!ss) return;
-  var wasOpen = ss.classList.contains('open');
-  document.querySelectorAll('.search-select.open').forEach(function(el) { el.classList.remove('open'); });
-  if (wasOpen) return;
-  // Get device ID from the device trigger
-  var devTrigger = document.getElementById('devin_' + mid);
-  var devId = devTrigger ? devTrigger.dataset.devid : '';
-  if (!devId) return;
-  var vars = Kit.devices.variables(devId);
-  if (!vars) {
-    // Opens once they arrive, unless it was opened since.
-    Kit.devices.whenVariables(devId).then(function(rows) {
-      var now = document.getElementById('varss_' + mid);
-      if (rows && now && !now.classList.contains('open')) openVarSearch(mid);
-    });
-    return;
-  }
-  var varTrigger = document.getElementById('varin_' + mid);
-  var selVarId = varTrigger ? varTrigger.dataset.varid : '';
-  var list = document.getElementById('varlist_' + mid);
-  if (!list) return;
-  var html = '';
-  var lastSection = null;
-  vars.forEach(function(v) {
-    if (v.section && v.section !== lastSection) {
-      html += '<div class="search-select-section">'+Kit.esc(v.section)+'</div>';
-      lastSection = v.section;
-    }
-    var vid = (v.deviceId != null ? v.deviceId : devId) + ':' + v.id;
-    var cls = vid === selVarId ? ' selected' : '';
-    html += '<div class="search-select-item'+cls+'" onclick="selectVariable(\''+mid+'\',\''+vid+'\')">'+Kit.esc(v.name)+'</div>';
-  });
-  list.innerHTML = html || '<div class="search-select-item" style="color:var(--text-muted);">No variables found</div>';
-  ss.classList.add('open');
-  positionSearchPopup(ss);
-  closeOnOutsideClick(ss);
-}
-
-function selectVariable(mid, varId) {
-  var trigger = document.getElementById('varin_' + mid);
-  var ss = document.getElementById('varss_' + mid);
+function pickVariable(mid, varId) {
   var v = mappedVariable(varId);
-  var label = v ? v.name : varId;
-  if (trigger) { trigger.textContent = label; trigger.title = label; trigger.dataset.varid = varId; trigger.classList.remove('placeholder'); }
-  if (ss) ss.classList.remove('open');
+  delete gPicked[mid];
+  Kit.combobox.set('var:' + mid, { label: v ? v.name : varId, value: varId });
   var parts = mid.split('__');
-  // Save the mapping
   var tfm = document.getElementById('tfm_' + mid);
   saveMapping(parts[0], parts[1], {source:'variable', varId:varId, transform: tfm ? tfm.value || null : null});
 }
@@ -865,12 +715,12 @@ function onDevicesChange(entryId) {
     var mappings = meas.readings[label].mappings || {};
     defs.forEach(function(defName) {
       var mapping = mappings[defName] || {};
-      var entry = mapping.source === 'variable' ? mappedEntry(mapping.varId) : null;
-      if (!entry || String(entry.id) !== entryId) return;
       var mid = escId(label) + '__' + escId(defName);
+      Kit.combobox.refresh('var:' + mid);
+      var entry = mapping.source === 'variable' ? mappedEntry(mapping.varId) : null;
+      if (!entry || String(entry.id) !== entryId || gPicked[mid]) return;
       var v = mappedVariable(mapping.varId);
-      var trigger = document.getElementById('varin_' + mid);
-      if (v && trigger) { trigger.textContent = v.name; trigger.title = v.name; trigger.classList.remove('placeholder'); }
+      if (v) Kit.combobox.set('var:' + mid, { label: v.name, value: mapping.varId });
       previewMapping(mid, defName, mapping, meas, mapping.transform);
     });
   });
