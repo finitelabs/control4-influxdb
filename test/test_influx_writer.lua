@@ -1009,6 +1009,28 @@ case("postBatch says which failures the server answered", function()
   C4.urlPost = realUrlPost
 end)
 
+case("a 429's Retry-After is kept to a wait the retry timer takes", function()
+  local headers
+  local realUrlPost = C4.urlPost
+  function C4:urlPost(_, _, _, _, callback)
+    callback(1, "", 429, headers)
+  end
+  local function retryAfter(value)
+    headers = { ["Retry-After"] = value }
+    local out
+    realPostBatch("http://influx.test", "t", { "m v=1" }):next(nil, function(e)
+      out = e
+    end)
+    return out.retryAfter
+  end
+  T.eq("a number of seconds is kept", retryAfter("30"), 30)
+  T.eq("no wait becomes a second", retryAfter("0"), 1)
+  T.eq("so does a wait below zero", retryAfter("-5"), 1)
+  T.eq("the longest wait is just under 25 days", retryAfter("99999999999"), 2147483)
+  T.eq("a date leaves the usual retry wait", retryAfter("Wed, 21 Oct 2026 07:28:00 GMT"), nil)
+  C4.urlPost = realUrlPost
+end)
+
 T.section("Buffer Full")
 
 case("it fires once per outage, however many points are lost", function()
