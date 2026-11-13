@@ -31,6 +31,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
   support has the Lua tab open.
   <!-- #endif -->
 
+### Fixed
+
+- Fixed readings that could stop being written after InfluxDB rate limited the
+  driver.
+
 ## v20261107 - 2026-11-07
 
 <!-- #ifdef DRIVERCENTRAL -->

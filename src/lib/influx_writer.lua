@@ -12,6 +12,10 @@ require("lib.utils")
 
 require("drivers-common-public.global.timer")
 
+-- The longest Retry-After we wait out, in seconds. Director refuses a timer under 1 ms and the common
+-- SetTimer one over 2^31 - 1 ms; a refused retry timer is never retried.
+local MAX_RETRY_AFTER = math.floor((2 ^ 31 - 1) / 1000)
+
 --- @class InfluxWriter
 local InfluxWriter = {}
 InfluxWriter.__index = InfluxWriter
@@ -274,7 +278,10 @@ function InfluxWriter.postBatch(url, token, lines)
       if tHeaders then
         local ra = tHeaders["Retry-After"] or tHeaders["retry-after"]
         if ra then
-          retryAfter = tonumber(ra)
+          retryAfter = tofinite(ra)
+          if retryAfter then
+            retryAfter = math.min(math.max(retryAfter, 1), MAX_RETRY_AFTER)
+          end
         end
       end
       log:warn("InfluxWriter: rate limited (HTTP 429), retry-after=%s", tostring(retryAfter))

@@ -332,6 +332,11 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 - Changed the Status view to show Driver Status as Composer does, with the time
   of the last write and how many measurements and readings are set up.
 
+### Fixed
+
+- Fixed readings that could stop being written after InfluxDB rate limited the
+  driver.
+
 ## v20261107 - 2026-11-07
 
 ### Fixed
