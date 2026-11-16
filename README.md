@@ -19,11 +19,8 @@ automatic offline buffering and retry.
 <div style="font-size: small">
 
 - [System Requirements](#system-requirements)
-
 - [Features](#features)
-
 - [Installer Setup](#installer-setup)
-
   - [Driver Installation](#driver-installation)
   - [Driver Setup](#driver-setup)
     - [Driver Tabs](#driver-tabs)
@@ -34,15 +31,11 @@ automatic offline buffering and retry.
       - [InfluxDB Settings](#influxdb-settings)
       - [Offline Buffer and Retry](#offline-buffer-and-retry)
     - [Driver Actions](#driver-actions)
-
 - [Programming](#programming)
-
   - [Events](#events)
   - [Variables](#variables)
   - [Conditionals](#conditionals)
-
 - [Support](#support)
-
 - [Changelog](#changelog)
 
 </div>
