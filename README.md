@@ -365,44 +365,44 @@ Template for a new release entry (copy below the heading, fill in, uncomment):
 
 ### Added
 
-- A schema field can pin its InfluxDB type instead of inferring it from each
+- Added pinning a schema field's InfluxDB type instead of inferring it from each
   value, so a measurement whose readings mix whole and fractional numbers is no
   longer rejected, and the mapping preview shows the pinned type.
-- Variables on agents, including Composer global variables, can be logged.
+- Added logging of variables on agents, including Composer global variables.
 
 ### Fixed
 
-- All of a measurement's readings on the same schedule are sent in one write,
-  instead of one request each.
-- Points carry the time they were read, rather than the time the write arrived,
-  which drifted by minutes whenever a write was retried.
-- A measurement no longer starts a write while one is still outstanding, so a
-  slow or unreachable InfluxDB no longer builds up retries it cannot clear.
-- Reloading or removing the driver while InfluxDB is unreachable stops cleanly
-  instead of erroring during shutdown.
-- A variable that never changes after startup is logged instead of being skipped
-  indefinitely.
-- Disabling a measurement stops its writes instead of leaving its buffered
-  points retrying.
-- A value of zero shows in the mapping preview instead of appearing blank.
-- A device now appears once in the device picker instead of once for each proxy
-  of the same name.
-- Dropdowns and the Delete button in the measurement editor are no longer cut
-  off or pushed out of reach.
+- Fixed a measurement's readings on the same schedule being sent in one request
+  each instead of in one write.
+- Fixed points carrying the time the write arrived rather than the time they
+  were read, which drifted by minutes whenever a write was retried.
+- Fixed a measurement starting a write while one was still outstanding, which
+  let a slow or unreachable InfluxDB build up retries it could not clear.
+- Fixed reloading or removing the driver while InfluxDB is unreachable erroring
+  during shutdown instead of stopping cleanly.
+- Fixed a variable that never changes after startup being skipped indefinitely
+  instead of logged.
+- Fixed disabling a measurement leaving its buffered points retrying instead of
+  stopping its writes.
+- Fixed a value of zero appearing blank in the mapping preview.
+- Fixed a device appearing in the device picker once for each proxy of the same
+  name instead of once.
+- Fixed dropdowns and the Delete button in the measurement editor being cut off
+  or pushed out of reach.
 
 ### Changed
 
-- The web UI fills the available width and adapts to narrow panes.
+- Changed the web UI to fill the available width and adapt to narrow panes.
 
 ## v20260331 - 2026-03-31
 
 ### Added
 
-- Web UI for configuring measurement schemas, per-device readings, and
-  transforms
+- Added a web UI for configuring measurement schemas, per-device readings, and
+  transforms.
 
 ## v20260325 - 2026-03-25
 
 ### Added
 
-- Initial Release
+- Added the InfluxDB Data Logger driver.
